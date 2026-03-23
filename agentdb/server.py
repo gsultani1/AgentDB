@@ -36,6 +36,12 @@ from agentdb.markdown_parser import (
     reverse_generate_markdown,
     MarkdownFileWatcher,
 )
+from agentdb.scheduler import (
+    ScheduledTaskRunner,
+    compute_next_run,
+    ensure_scheduler_schema,
+    run_scheduled_task_now,
+)
 
 
 _db_path = None
@@ -44,6 +50,7 @@ _static_dir = Path(__file__).parent / "static"
 _allowed_origins = {"http://127.0.0.1", "http://localhost", "tauri://localhost"}
 _last_import_result = None
 _file_watcher = None
+_task_scheduler = None
 
 
 def _get_conn():
@@ -289,6 +296,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 crud.delete_feedback(conn, m["id"])
                 return _json_response(self, 200, data={"deleted": m["id"]})
+            m = _match("/api/scheduled-tasks/{id}", path)
+            if m:
+                crud.delete_scheduled_task(conn, m["id"])
+                return _json_response(self, 200, data={"deleted": m["id"]})
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
             conn.close()
@@ -339,6 +350,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return self._op_agents_list(conn)
             if path == "/api/notifications":
                 return self._op_notifications_list(conn, qp)
+            if path == "/api/scheduled-tasks":
+                return self._op_scheduled_tasks_list(conn, qp)
+            if path == "/api/scheduler/status":
+                return self._op_scheduler_status(conn)
             if path == "/api/mcp/status":
                 return _json_response(self, 200, data={
                     "enabled": crud.get_config_value(conn, "mcp_enabled", "false") == "true",
@@ -389,6 +404,9 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 if agent:
                     return _json_response(self, 200, data=agent)
                 return _json_response(self, 404, error="Agent not found")
+            m = _match("/api/scheduled-tasks/{id}", path)
+            if m:
+                return self._op_scheduled_task_detail(conn, m["id"])
 
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
@@ -455,6 +473,8 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if path == "/api/notifications/dismiss":
                 crud.dismiss_read_notifications(conn)
                 return _json_response(self, 200, data={"message": "Read notifications dismissed"})
+            if path == "/api/scheduled-tasks":
+                return self._op_scheduled_task_create(conn, body)
             if path == "/api/maintenance/consolidate":
                 from agentdb.consolidation import run_consolidation_cycle
                 result = run_consolidation_cycle(conn)
@@ -514,6 +534,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             m = _match("/api/skills/{id}/rollback/{version}", path)
             if m:
                 return self._op_skill_rollback(conn, m["id"], int(m["version"]))
+            m = _match("/api/scheduled-tasks/{id}/run", path)
+            if m:
+                result = run_scheduled_task_now(conn, m["id"])
+                return _json_response(self, 200, data=result)
 
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
@@ -563,6 +587,9 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 crud.update_entity(conn, m["id"], **body)
                 return _json_response(self, 200, data={"id": m["id"], "updated": True})
+            m = _match("/api/scheduled-tasks/{id}", path)
+            if m:
+                return self._op_scheduled_task_update(conn, m["id"], body)
 
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
@@ -777,6 +804,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             ("workspace_files", "workspace_files"),
             ("views", "views"),
             ("embeddings_cache", "embeddings_cache"),
+            ("scheduled_tasks", "scheduled_tasks"),
         ]
         stats = {}
         for table, key in tables:
@@ -1175,6 +1203,69 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         )
         _json_response(self, 200, data=notifications)
 
+    def _op_scheduled_tasks_list(self, conn, qp):
+        status = qp.get("status", [None])[0]
+        agent_id = qp.get("agent_id", [None])[0]
+        limit = int(qp.get("limit", [100])[0])
+        offset = int(qp.get("offset", [0])[0])
+        tasks = crud.list_scheduled_tasks(
+            conn, status=status, agent_id=agent_id, limit=limit, offset=offset
+        )
+        _json_response(self, 200, data=tasks)
+
+    def _op_scheduled_task_detail(self, conn, task_id):
+        task = crud.get_scheduled_task(conn, task_id)
+        if not task:
+            return _json_response(self, 404, error="Scheduled task not found")
+        _json_response(self, 200, data=task)
+
+    def _op_scheduled_task_create(self, conn, body):
+        name = body.get("name", "")
+        action_type = body.get("action_type", "")
+        if not name or not action_type:
+            return _json_response(self, 400, error="'name' and 'action_type' are required")
+        try:
+            interval_seconds = int(body.get("interval_seconds", 0))
+        except (TypeError, ValueError):
+            return _json_response(self, 400, error="'interval_seconds' must be an integer")
+        if interval_seconds <= 0:
+            return _json_response(self, 400, error="'interval_seconds' must be greater than 0")
+        next_run_at = body.get("next_run_at") or compute_next_run(interval_seconds)
+        task_id = crud.create_scheduled_task(
+            conn,
+            name=name,
+            description=body.get("description"),
+            agent_id=body.get("agent_id", "default"),
+            action_type=action_type,
+            schedule_type=body.get("schedule_type", "interval"),
+            interval_seconds=interval_seconds,
+            payload_json=body.get("payload_json", body.get("payload")),
+            status=body.get("status", "active"),
+            next_run_at=next_run_at,
+        )
+        _json_response(self, 201, data={"id": task_id, "next_run_at": next_run_at})
+
+    def _op_scheduled_task_update(self, conn, task_id, body):
+        if not crud.get_scheduled_task(conn, task_id):
+            return _json_response(self, 404, error="Scheduled task not found")
+        updates = dict(body)
+        if "interval_seconds" in updates and "next_run_at" not in updates:
+            try:
+                updates["interval_seconds"] = int(updates["interval_seconds"])
+            except (TypeError, ValueError):
+                return _json_response(self, 400, error="'interval_seconds' must be an integer")
+            updates["next_run_at"] = compute_next_run(updates["interval_seconds"])
+        result = crud.update_scheduled_task(conn, task_id, **updates)
+        _json_response(self, 200, data={"id": task_id, "updated": result})
+
+    def _op_scheduler_status(self, conn):
+        _json_response(self, 200, data={
+            "enabled": crud.get_config_value(conn, "scheduler_enabled", "true") == "true",
+            "poll_interval_seconds": int(crud.get_config_value(conn, "scheduler_poll_interval_seconds", "5")),
+            "runner_started": _task_scheduler is not None,
+            "last_result": _task_scheduler.last_result if _task_scheduler else None,
+        })
+
 
 def _run_integrity_check(conn):
     """Scan polymorphic reference columns for orphaned IDs."""
@@ -1234,9 +1325,13 @@ def run_server(db_path, host="127.0.0.1", port=8420):
         host: Bind address (default localhost).
         port: Port number (default 8420).
     """
-    global _db_path, _start_time, _file_watcher
+    global _db_path, _start_time, _file_watcher, _task_scheduler
     _db_path = db_path
     _start_time = time.time()
+
+    conn = get_connection(db_path)
+    ensure_scheduler_schema(conn)
+    conn.close()
 
     # Start markdown file watcher if enabled
     try:
@@ -1250,6 +1345,13 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     except Exception as e:
         print(f"Warning: Could not start file watcher: {e}")
 
+    try:
+        _task_scheduler = ScheduledTaskRunner(db_path)
+        _task_scheduler.start()
+        print("Scheduled task runner started")
+    except Exception as e:
+        print(f"Warning: Could not start scheduled task runner: {e}")
+
     server = HTTPServer((host, port), AgentDBHandler)
     print(f"AgentDB server running at http://{host}:{port}")
     print(f"Database: {db_path}")
@@ -1262,4 +1364,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
         if _file_watcher:
             _file_watcher.stop()
             print("File watcher stopped")
+        if _task_scheduler:
+            _task_scheduler.stop()
+            print("Scheduled task runner stopped")
         server.shutdown()

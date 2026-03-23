@@ -100,7 +100,7 @@ img {
 }
 
 /* ----- Sidebar / Nav ----- */
-.nav {
+nav, #sidebar {
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
   height: 100vh;
@@ -108,136 +108,77 @@ img {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   transition: width var(--transition), min-width var(--transition);
   overflow: hidden;
   z-index: 100;
 }
 
-.nav-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.nav-header h1 {
+nav .logo {
+  padding: 20px 16px;
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  letter-spacing: 1px;
 }
 
-.nav-logo {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-}
-
-.nav-toggle {
-  background: none;
-  border: none;
-  color: var(--text2);
-  cursor: pointer;
-  margin-left: auto;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-.nav-toggle:hover {
-  background: var(--bg3);
-  color: var(--text);
-}
-
-.nav-links {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-  list-style: none;
-}
-
-.nav-links li a {
+nav a {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
+  padding: 10px 16px;
+  border-left: 3px solid transparent;
   color: var(--text2);
   font-size: 0.92rem;
   white-space: nowrap;
   transition: background var(--transition), color var(--transition);
+  text-decoration: none;
 }
-.nav-links li a:hover {
+nav a:hover {
   background: var(--bg3);
   color: var(--text);
   text-decoration: none;
 }
-.nav-links li a.active {
-  background: var(--accentLight);
+nav a.active {
   color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--accentLight);
   font-weight: 600;
 }
 
-.nav-links li a .nav-icon {
+nav a .icon {
   width: 20px;
-  height: 20px;
+  text-align: center;
+  font-size: 15px;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.nav-links li a .nav-label {
+nav a .label {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.nav-badge {
-  margin-left: auto;
-  background: var(--red);
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
-}
-
-.nav-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  font-size: 0.8rem;
-  color: var(--text2);
-  white-space: nowrap;
-  overflow: hidden;
-}
-
 /* Collapsed sidebar */
-body.sidebar-collapsed .nav {
+body.sidebar-collapsed nav,
+body.sidebar-collapsed #sidebar {
   width: var(--sidebar-collapsed-w);
   min-width: var(--sidebar-collapsed-w);
 }
-body.sidebar-collapsed .nav-header h1,
-body.sidebar-collapsed .nav-label,
-body.sidebar-collapsed .nav-badge,
-body.sidebar-collapsed .nav-footer span,
-body.sidebar-collapsed .nav-toggle span {
+body.sidebar-collapsed nav .logo,
+body.sidebar-collapsed nav a .label {
   display: none;
 }
-body.sidebar-collapsed .nav-links li a {
+body.sidebar-collapsed nav a {
   justify-content: center;
-  padding: 10px;
+  padding: 12px;
+  border-left: none;
 }
 
 /* ----- Main Content ----- */
-.main {
+main {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1150,7 +1091,7 @@ hr {
     justify-content: center;
   }
 
-  .nav {
+  nav, #sidebar {
     position: fixed;
     left: -220px;
     top: 0;
@@ -1160,27 +1101,26 @@ hr {
     width: var(--sidebar-w);
     min-width: var(--sidebar-w);
   }
-  .nav.open {
+  nav.open, #sidebar.open {
     left: 0;
   }
 
   /* Prevent collapsed state on mobile */
-  body.sidebar-collapsed .nav {
+  body.sidebar-collapsed nav,
+  body.sidebar-collapsed #sidebar {
     width: var(--sidebar-w);
     min-width: var(--sidebar-w);
   }
-  body.sidebar-collapsed .nav-header h1,
-  body.sidebar-collapsed .nav-label,
-  body.sidebar-collapsed .nav-badge,
-  body.sidebar-collapsed .nav-footer span {
+  body.sidebar-collapsed nav .logo,
+  body.sidebar-collapsed nav a .label {
     display: initial;
   }
-  body.sidebar-collapsed .nav-links li a {
+  body.sidebar-collapsed nav a {
     justify-content: flex-start;
-    padding: 8px 10px;
+    padding: 10px 16px;
   }
 
-  .main {
+  main {
     padding: 16px;
     padding-top: 52px;
     height: 100vh;

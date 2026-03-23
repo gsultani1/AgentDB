@@ -323,6 +323,7 @@ def main():
         "verify": cmd_verify,
         "stats": cmd_stats,
         "serve": cmd_serve,
+        "mcp": cmd_mcp,
     }
 
     if args.command in dispatch:

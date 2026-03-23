@@ -313,7 +313,7 @@ AgentDB.navigate = function navigate(viewName) {
   }
 
   // Update nav active state
-  var links = document.querySelectorAll('.nav-links a');
+  var links = document.querySelectorAll('nav a[data-view]');
   links.forEach(function (a) {
     var href = a.getAttribute('data-view');
     if (href === viewName) {
@@ -330,7 +330,7 @@ AgentDB.navigate = function navigate(viewName) {
   }
 
   // Close mobile nav
-  var nav = document.querySelector('.nav');
+  var nav = document.getElementById('sidebar');
   var overlay = document.querySelector('.sidebar-overlay');
   if (nav) nav.classList.remove('open');
   if (overlay) overlay.classList.remove('active');
@@ -348,7 +348,7 @@ AgentDB.toggleSidebar = function toggleSidebar() {
   var isMobile = window.innerWidth <= 768;
 
   if (isMobile) {
-    var nav = document.querySelector('.nav');
+    var nav = document.getElementById('sidebar');
     var overlay = document.querySelector('.sidebar-overlay');
     if (nav) nav.classList.toggle('open');
     if (overlay) overlay.classList.toggle('active');
@@ -390,12 +390,12 @@ AgentDB.hideLoading = function hideLoading(containerId) {
    Notification badge polling
    --------------------------------------------------------------- */
 AgentDB._pollNotifications = function pollNotifications() {
-  AgentDB.api('GET', '/api/notifications/unread-count').then(function (res) {
-    var badge = document.querySelector('.nav-badge[data-badge="notifications"]');
+  AgentDB.api('GET', '/api/notifications?read=0&limit=100').then(function (res) {
+    var badge = document.getElementById('notif-badge');
     if (!badge) return;
-    if (res && res.count && res.count > 0) {
-      badge.textContent = res.count > 99 ? '99+' : res.count;
-      badge.style.display = '';
+    if (res && res.status === 'ok' && res.data && res.data.length > 0) {
+      badge.textContent = res.data.length > 99 ? '99+' : res.data.length;
+      badge.style.display = 'inline';
     } else {
       badge.style.display = 'none';
     }
@@ -419,7 +419,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // Wire nav link clicks
-  var navLinks = document.querySelectorAll('.nav-links a[data-view]');
+  var navLinks = document.querySelectorAll('nav a[data-view][data-view]');
   navLinks.forEach(function (link) {
     link.addEventListener('click', function (e) {
       e.preventDefault();
@@ -439,7 +439,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var overlay = document.querySelector('.sidebar-overlay');
   if (overlay) {
     overlay.addEventListener('click', function () {
-      var nav = document.querySelector('.nav');
+      var nav = document.getElementById('sidebar');
       if (nav) nav.classList.remove('open');
       overlay.classList.remove('active');
     });

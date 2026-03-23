@@ -1,12 +1,12 @@
 (function() {
   const V = AgentDB.views.memories = {};
   const el = () => document.getElementById('view-memories');
-  let currentTier = 'short_term';
+  let currentTier = 'short';
 
   const TIERS = [
-    { key: 'short_term', label: 'Short-Term' },
-    { key: 'midterm', label: 'Midterm' },
-    { key: 'long_term', label: 'Long-Term' }
+    { key: 'short', label: 'Short-Term', badge: 'short_term' },
+    { key: 'mid', label: 'Midterm', badge: 'midterm' },
+    { key: 'long', label: 'Long-Term', badge: 'long_term' }
   ];
 
   const CATEGORIES = [
@@ -17,7 +17,7 @@
   const SOURCES = ['conversation', 'tool_output', 'markdown_authored'];
 
   function tierBadge(tier) {
-    const map = { short_term: 'stm', midterm: 'mtm', long_term: 'ltm' };
+    const map = { short_term: 'stm', midterm: 'mtm', long_term: 'ltm', short: 'stm', mid: 'mtm', long: 'ltm' };
     return `<span class="tier ${map[tier] || ''}">${tier.replace('_', ' ')}</span>`;
   }
 
@@ -137,7 +137,7 @@
       return;
     }
 
-    const isSTM = currentTier === 'short_term';
+    const isSTM = currentTier === 'short';
     const headers = `
       <tr>
         <th style="width:90px">ID</th>
