@@ -4,7 +4,7 @@
 
   const SETTINGS_SCHEMA = {
     "Agent API": [
-      { key: 'agent_api_key', label: 'Agent API Key', type: 'password', fullWidth: true, hint: 'API key clients must send to authenticate with AgentDB' },
+      { key: 'agent_api_key', label: 'Agent API Key', type: 'agent_key_gen', fullWidth: true, hint: 'External AI agents must include this in the X-API-Key header. Leave blank for open access.' },
     ],
     "Memory & Consolidation": [
       { key: 'consolidation_enabled', label: 'Enable Consolidation', type: 'toggle', hint: 'Automatically promote and consolidate memories' },
@@ -104,6 +104,13 @@
             html += '<option value="' + o + '"' + (val === o ? ' selected' : '') + '>' + o + '</option>';
           });
           html += '</select>';
+        } else if (f.type === 'agent_key_gen') {
+          html += '<div style="display:flex;gap:8px;align-items:center">';
+          html += '<input type="text" id="cfg-' + f.key + '" value="' + AgentDB.esc(val) + '" style="flex:1;font-family:var(--mono);font-size:12px" readonly>';
+          html += '<button class="btn btn-sm" onclick="AgentDB.views.settings.generateApiKey(\'' + f.key + '\')">Generate</button>';
+          html += '<button class="btn btn-sm" onclick="AgentDB.copyToClipboard(document.getElementById(\'cfg-' + f.key + '\').value)">Copy</button>';
+          html += '<button class="btn btn-sm" style="color:var(--red)" onclick="AgentDB.views.settings.clearApiKey(\'' + f.key + '\')">Clear</button>';
+          html += '</div>';
         } else if (f.type === 'password') {
           html += '<input type="password" id="cfg-' + f.key + '" value="' + AgentDB.esc(val) + '" style="width:100%" ' +
             'onchange="AgentDB.views.settings.saveConfig(\'' + f.key + '\')">';
@@ -214,6 +221,21 @@
     await AgentDB.api('DELETE', '/api/providers/' + id);
     AgentDB.toast('Provider deleted');
     V.loadProviders();
+  };
+
+  V.generateApiKey = async function(key) {
+    var bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    var newKey = 'agentdb_' + Array.from(bytes).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    document.getElementById('cfg-' + key).value = newKey;
+    await AgentDB.api('PUT', '/api/config/' + key, { value: newKey });
+    AgentDB.toast('API key generated and saved', 'success');
+  };
+
+  V.clearApiKey = async function(key) {
+    document.getElementById('cfg-' + key).value = '';
+    await AgentDB.api('PUT', '/api/config/' + key, { value: '' });
+    AgentDB.toast('API key cleared — API is now open', 'info');
   };
 
   V.saveConfig = async function(key) {

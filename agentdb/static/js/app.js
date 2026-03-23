@@ -17,9 +17,24 @@ AgentDB.state = {
 /* ---------------------------------------------------------------
    1. API helper
    --------------------------------------------------------------- */
+AgentDB._agentApiKey = null;   // cached agent API key (fetched once on first agent call)
+AgentDB._agentKeyLoaded = false;
+
+AgentDB._ensureAgentKey = async function () {
+  if (AgentDB._agentKeyLoaded) return;
+  AgentDB._agentKeyLoaded = true;
+  try {
+    var r = await fetch('/api/config/agent_api_key');
+    var json = await r.json();
+    if (json.status === 'ok' && json.data && json.data.value) {
+      AgentDB._agentApiKey = json.data.value;
+    }
+  } catch (_) { /* key not set or network error — leave null */ }
+};
+
 AgentDB.api = async function api(method, path, body) {
   try {
-    const opts = {
+    var opts = {
       method: method.toUpperCase(),
       headers: {},
     };
@@ -27,8 +42,15 @@ AgentDB.api = async function api(method, path, body) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(path, opts);
-    const data = await res.json();
+    // Inject agent API key for /api/agent/* requests
+    if (path.indexOf('/api/agent/') === 0) {
+      await AgentDB._ensureAgentKey();
+      if (AgentDB._agentApiKey) {
+        opts.headers['X-API-Key'] = AgentDB._agentApiKey;
+      }
+    }
+    var res = await fetch(path, opts);
+    var data = await res.json();
     return data;
   } catch (err) {
     return { status: 'error', error: err.message || 'Network error' };
@@ -329,6 +351,11 @@ AgentDB.navigate = function navigate(viewName) {
     history.replaceState(null, '', '#' + viewName);
   }
 
+  // Expand the sidebar group containing this view
+  if (typeof AgentDB._expandActiveGroup === 'function') {
+    AgentDB._expandActiveGroup(viewName);
+  }
+
   // Close mobile nav only if navigating from a nav link click (not on initial load)
   if (AgentDB._closeNavOnNavigate) {
     var nav = document.getElementById('sidebar');
@@ -419,6 +446,26 @@ document.addEventListener('DOMContentLoaded', function () {
     tc.className = 'toast-container';
     document.body.appendChild(tc);
   }
+
+  // Wire nav group toggles (collapsible sidebar groups)
+  var groupHeaders = document.querySelectorAll('.nav-group-header');
+  groupHeaders.forEach(function (header) {
+    header.addEventListener('click', function () {
+      var group = header.closest('.nav-group');
+      if (group) group.classList.toggle('open');
+    });
+  });
+
+  // Auto-expand the group containing the active view
+  AgentDB._expandActiveGroup = function (viewName) {
+    document.querySelectorAll('.nav-group').forEach(function (g) {
+      g.classList.remove('has-active');
+      var activeLink = g.querySelector('a[data-view="' + viewName + '"]');
+      if (activeLink) {
+        g.classList.add('open', 'has-active');
+      }
+    });
+  };
 
   // Wire nav link clicks
   var navLinks = document.querySelectorAll('nav a[data-view]');

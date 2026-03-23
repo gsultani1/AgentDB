@@ -138,10 +138,13 @@ class ClaudeAdapter(ProviderAdapter):
 
         api_messages = []
         for msg in messages:
-            api_messages.append({
-                "role": msg["role"],
-                "content": msg["content"],
-            })
+            content = msg["content"]
+            # Support multi-part content (text + images)
+            if isinstance(content, list):
+                msg_content = content  # Already in Claude format [{type: "text/image", ...}]
+            else:
+                msg_content = content
+            api_messages.append({"role": msg["role"], "content": msg_content})
 
         payload = {
             "model": model,
@@ -226,10 +229,13 @@ class OpenAIAdapter(ProviderAdapter):
 
         api_messages = [{"role": "system", "content": formatted_context}]
         for msg in messages:
-            api_messages.append({
-                "role": msg["role"],
-                "content": msg["content"],
-            })
+            content = msg["content"]
+            # Support multi-part content (text + images)
+            if isinstance(content, list):
+                msg_content = content
+            else:
+                msg_content = content
+            api_messages.append({"role": msg["role"], "content": msg_content})
 
         payload = {
             "model": model,
@@ -346,7 +352,23 @@ def get_adapter(provider_name):
 
 
 def get_llm_config(conn):
-    """Load LLM-related config from meta_config."""
+    """Load LLM config from the default llm_providers row, falling back to meta_config."""
+    # Prefer the explicitly-marked default provider (multi-model registry)
+    try:
+        prov = conn.execute(
+            "SELECT * FROM llm_providers WHERE is_default = 1 LIMIT 1"
+        ).fetchone()
+        if prov:
+            prov = dict(prov)
+            return {
+                "llm_provider": prov["provider_type"],
+                "llm_api_key": prov.get("api_key") or "",
+                "llm_model": prov["model"],
+                "llm_endpoint": prov.get("endpoint") or "",
+            }
+    except Exception:
+        pass
+    # Fallback: flat meta_config keys (legacy / first-run before providers seeded)
     keys = ["llm_provider", "llm_api_key", "llm_model", "llm_endpoint"]
     config = {}
     for key in keys:

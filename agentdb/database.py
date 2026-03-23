@@ -84,8 +84,8 @@ DEFAULT_CONFIG = {
     "temporal_decay_curve": "0.95",
     "scheduler_enabled": "true",
     "scheduler_poll_interval_seconds": "5",
-    "mcp_enabled": "false",
-    "mcp_transport": "stdio",
+    "mcp_enabled": "true",
+    "mcp_transport": "sse",
     "mcp_port": "8421",
     "db_console_write_enabled": "false",
 }

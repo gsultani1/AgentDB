@@ -150,11 +150,17 @@ def run_consolidation() -> dict:
         conn.close()
 
 
-def run_mcp_server(db_path, transport="stdio"):
-    """Start the MCP server."""
+def run_mcp_server(db_path, transport="stdio", host="127.0.0.1", port=8421):
+    """Start the MCP server. Called directly for stdio mode or in a daemon thread for sse."""
     global _db_path
     _db_path = db_path
     if transport == "sse":
+        # FastMCP SSE runs its own uvicorn server; configure host/port via settings if supported
+        try:
+            mcp.settings.host = host
+            mcp.settings.port = port
+        except AttributeError:
+            pass  # older FastMCP versions don't expose settings
         mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")

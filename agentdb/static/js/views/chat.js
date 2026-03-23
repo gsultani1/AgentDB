@@ -9,6 +9,7 @@
 
   var V = {};
   AgentDB.views.chat = V;
+  var pendingFiles = []; // [{name, type, data_b64, url}]
 
   /* -- Ensure persistent state fields exist -- */
   if (!AgentDB.state.chatSessionId) AgentDB.state.chatSessionId = null;
@@ -50,8 +51,11 @@
       html += '  <div class="chat-thread">';
       html += '    <div class="chat-messages" id="chat-messages"></div>';
       html += '    <div class="chat-input-area">';
+      html += '      <div id="chat-file-preview" style="display:none;padding:8px;flex-wrap:wrap;gap:8px;width:100%"></div>';
+      html += '      <input type="file" id="chat-file-input" multiple accept="image/*,.txt,.pdf,.json,.md,.csv" style="display:none">';
       html += '      <textarea id="chat-input" rows="3" placeholder="Type a message..." ';
       html += '        style="flex:1"></textarea>';
+      html += '      <button class="btn" id="chat-attach" title="Attach file" style="font-size:18px;padding:6px 10px;align-self:flex-end">&#128206;</button>';
       html += '      <button class="btn btn-primary" id="chat-send" ';
       html += '        style="align-self:flex-end">Send</button>';
       html += '    </div>';
@@ -111,6 +115,22 @@
           V.send();
         }
       });
+
+      document.getElementById('chat-attach').addEventListener('click', function() {
+        document.getElementById('chat-file-input').click();
+      });
+      document.getElementById('chat-file-input').addEventListener('change', function(e) {
+        Array.from(e.target.files).forEach(function(file) {
+          var reader = new FileReader();
+          reader.onload = function(ev) {
+            var b64 = ev.target.result.split(',')[1];
+            pendingFiles.push({name: file.name, type: file.type, data_b64: b64});
+            renderFilePreview();
+          };
+          reader.readAsDataURL(file);
+        });
+        e.target.value = '';
+      });
     }
 
     /* ---- Restore messages from state ---- */
@@ -168,6 +188,28 @@
   };
 
   /* =============================================================
+     renderFilePreview  —  Show pending file attachments
+     ============================================================= */
+  function renderFilePreview() {
+    var wrap = document.getElementById('chat-file-preview');
+    if (!wrap) return;
+    if (!pendingFiles.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'flex';
+    wrap.innerHTML = pendingFiles.map(function(f, i) {
+      var isImg = f.type.startsWith('image/');
+      return '<div style="display:flex;align-items:center;gap:4px;background:var(--bg3);padding:4px 8px;border-radius:var(--radius);font-size:12px">' +
+        (isImg ? '<img src="data:' + f.type + ';base64,' + f.data_b64 + '" style="width:32px;height:32px;object-fit:cover;border-radius:4px">' : '<span>&#128196;</span>') +
+        '<span>' + AgentDB.esc(f.name) + '</span>' +
+        '<button onclick="AgentDB.views.chat.removeFile(' + i + ')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">&times;</button></div>';
+    }).join('');
+  }
+
+  V.removeFile = function(idx) {
+    pendingFiles.splice(idx, 1);
+    renderFilePreview();
+  };
+
+  /* =============================================================
      V.send  —  Send a message to the agent
      ============================================================= */
   V.send = function send() {
@@ -175,7 +217,13 @@
     if (!inputEl) return;
 
     var message = inputEl.value.trim();
-    if (!message) return;
+    if (!message && !pendingFiles.length) return;
+    if (!message) message = '';
+
+    /* Capture pending files before clearing */
+    var filesToSend = pendingFiles.slice();
+    pendingFiles = [];
+    renderFilePreview();
 
     /* Clear input immediately */
     inputEl.value = '';
@@ -190,9 +238,41 @@
     }
 
     sessionReady.then(function () {
+      /* Upload files and build content parts */
+      var uploadPromises = filesToSend.map(function(f) {
+        return AgentDB.api('POST', '/api/uploads', {
+          filename: f.name, data: f.data_b64, content_type: f.type
+        }).then(function() { return f; });
+      });
+      return Promise.all(uploadPromises);
+    }).then(function(uploadedFiles) {
+      var displayContent = message;
+      var historyContent = message;
+
+      /* Build multi-part content if files attached */
+      if (uploadedFiles.length) {
+        var contentParts = [];
+        for (var i = 0; i < uploadedFiles.length; i++) {
+          var f = uploadedFiles[i];
+          if (f.type.startsWith('image/')) {
+            contentParts.push({
+              type: "image",
+              source: { type: "base64", media_type: f.type, data: f.data_b64 }
+            });
+          } else {
+            contentParts.push({ type: "text", text: "[File: " + f.name + "]\n" + atob(f.data_b64) });
+          }
+        }
+        if (message) {
+          contentParts.push({ type: "text", text: message });
+        }
+        historyContent = contentParts;
+        displayContent = contentParts;
+      }
+
       /* Append user message to UI and state */
-      V.appendMsg('user', message);
-      AgentDB.state.chatHistory.push({ role: 'user', content: message });
+      V.appendMsg('user', displayContent);
+      AgentDB.state.chatHistory.push({ role: 'user', content: historyContent });
 
       /* Show typing indicator */
       var typingEl = V.showTyping();
@@ -203,6 +283,11 @@
         session_id: AgentDB.state.chatSessionId,
         history: AgentDB.state.chatHistory,
       };
+
+      /* If multi-part content, set it on payload */
+      if (uploadedFiles.length) {
+        payload.content = historyContent;
+      }
 
       var provider = document.getElementById('chat-provider');
       if (provider) payload.provider = provider.value;
@@ -243,9 +328,18 @@
 
     if (role === 'user') {
       wrapper.className = 'chat-msg chat-msg-user';
-      wrapper.innerHTML =
-        '<div class="chat-msg-role" style="font-size:.75rem;opacity:.8;margin-bottom:2px">You</div>' +
-        '<div>' + AgentDB.esc(content) + '</div>';
+      if (Array.isArray(content)) {
+        var htmlParts = content.map(function(part) {
+          if (part.type === 'image') return '<img src="data:' + part.source.media_type + ';base64,' + part.source.data + '" style="max-width:200px;border-radius:8px;margin:4px 0">';
+          if (part.type === 'text') return '<p>' + AgentDB.esc(part.text) + '</p>';
+          return '';
+        }).join('');
+        wrapper.innerHTML = '<div class="chat-msg-role" style="font-size:.75rem;opacity:.8;margin-bottom:2px">You</div>' + htmlParts;
+      } else {
+        wrapper.innerHTML =
+          '<div class="chat-msg-role" style="font-size:.75rem;opacity:.8;margin-bottom:2px">You</div>' +
+          '<div>' + AgentDB.esc(content) + '</div>';
+      }
     } else if (role === 'assistant') {
       wrapper.className = 'chat-msg chat-msg-assistant md-content';
       wrapper.innerHTML =

@@ -51,6 +51,9 @@ _allowed_origins = {"http://127.0.0.1", "http://localhost", "tauri://localhost"}
 _last_import_result = None
 _file_watcher = None
 _task_scheduler = None
+_mcp_thread = None
+_mcp_port = None
+_mcp_started = False
 
 
 def _get_conn():
@@ -58,16 +61,32 @@ def _get_conn():
     return get_connection(_db_path)
 
 
+def _is_local_ui_request(handler):
+    """Return True if the request originates from the built-in web UI (same origin)."""
+    host = handler.headers.get("Host", "")
+    if not host:
+        return False
+    referer = handler.headers.get("Referer", "")
+    origin = handler.headers.get("Origin", "")
+    expected = "http://" + host
+    return referer.startswith(expected + "/") or referer.startswith(expected + "#") or origin == expected
+
+
 def _check_agent_api_key(handler):
     """
     Validate the agent API key. Returns (authorized: bool, derived_agent_id: str | None).
 
     Lookup order:
+    0. Same-origin requests from the built-in UI → always authorized.
     1. Per-agent key stored in agents.config as {"api_key": "..."} — if matched,
        derived_agent_id is set to that agent's id, overriding any body agent_id.
     2. Global agent_api_key in meta_config — matched key leaves agent_id body-provided.
     3. No key configured → open-by-default (True, None).
     """
+    # Built-in UI is always trusted (same-origin, localhost only)
+    if _is_local_ui_request(handler):
+        return True, None
+
     conn = _get_conn()
     try:
         provided_key = handler.headers.get("X-API-Key", "")
@@ -96,7 +115,10 @@ def _check_operator_auth(handler):
     """
     Validate operator access via Authorization: Bearer <key> or X-API-Key header.
     Returns True if authorized. Open-by-default when operator_api_key is empty.
+    Same-origin UI requests are always trusted.
     """
+    if _is_local_ui_request(handler):
+        return True
     conn = _get_conn()
     try:
         configured = conn.execute(
@@ -225,6 +247,26 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         if path in ("", "/", "/index.html"):
             return self._serve_static("index.html")
 
+        # Serve uploaded files
+        if path.startswith("/api/uploads/"):
+            fname = path.split("/api/uploads/", 1)[1]
+            uploads_dir = Path(_db_path).parent / "uploads"
+            fpath = (uploads_dir / fname).resolve()
+            if not str(fpath).startswith(str(uploads_dir.resolve())) or not fpath.is_file():
+                self.send_response(404)
+                self.end_headers()
+                return
+            content = fpath.read_bytes()
+            ext = fpath.suffix.lower()
+            ct_map = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf', '.txt': 'text/plain'}
+            ct = ct_map.get(ext, 'application/octet-stream')
+            self.send_response(200)
+            self.send_header("Content-Type", ct)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
         # Serve static assets (css, js, images)
         if not path.startswith("/api/"):
             return self._serve_static(path.lstrip("/"))
@@ -313,15 +355,14 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_get(self, path, qp):
-        # Operator auth on all /api/* routes (health exempt for monitoring)
-        if path.startswith("/api/") and path not in ("/api/agent/health",):
+        # Agent routes have their own auth — skip operator check for them
+        if path.startswith("/api/agent/"):
+            if path != "/api/agent/health":
+                if not self._require_agent_auth():
+                    return
+        elif path.startswith("/api/"):
             if not _check_operator_auth(self):
                 return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
-
-        # Enforce API key on agent routes (health is exempt for monitoring)
-        if path.startswith("/api/agent/") and path != "/api/agent/health":
-            if not self._require_agent_auth():
-                return
 
         conn = _get_conn()
         try:
@@ -365,10 +406,16 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                         p['api_key'] = '****' + p['api_key'][-4:] if len(p['api_key']) > 4 else '****'
                 return _json_response(self, 200, data=providers)
             if path == "/api/mcp/status":
+                thread_alive = _mcp_thread is not None and _mcp_thread.is_alive()
                 return _json_response(self, 200, data={
-                    "enabled": crud.get_config_value(conn, "mcp_enabled", "false") == "true",
-                    "transport": crud.get_config_value(conn, "mcp_transport", "stdio"),
-                    "port": int(crud.get_config_value(conn, "mcp_port", "8421")),
+                    "enabled": crud.get_config_value(conn, "mcp_enabled", "true") == "true",
+                    "transport": "sse",
+                    "port": _mcp_port or int(crud.get_config_value(conn, "mcp_port", "8421")),
+                    "running": thread_alive,
+                    "url": f"http://127.0.0.1:{_mcp_port}/sse" if thread_alive and _mcp_port else None,
+                    "tools": ["retrieve_context_tool", "ingest_memory", "search_memories",
+                               "list_memories", "create_entity", "list_entities",
+                               "check_goals", "get_health", "run_consolidation"],
                 })
             if path == "/api/import/status":
                 if _last_import_result:
@@ -427,15 +474,13 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_post(self, path, body):
-        # Operator auth on all /api/* routes
-        if path.startswith("/api/"):
-            if not _check_operator_auth(self):
-                return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
-
-        # Enforce API key on agent routes
+        # Agent routes have their own auth — skip operator check for them
         if path.startswith("/api/agent/"):
             if not self._require_agent_auth():
                 return
+        elif path.startswith("/api/"):
+            if not _check_operator_auth(self):
+                return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
 
         conn = _get_conn()
         try:
@@ -549,6 +594,32 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     return _json_response(self, 400, error="name and model are required")
                 pid = crud.create_llm_provider(conn, name, ptype, model, api_key, endpoint, is_default)
                 return _json_response(self, 201, data={"id": pid})
+            if path == "/api/uploads":
+                # Accept base64-encoded file upload
+                filename = body.get("filename", "file")
+                data_b64 = body.get("data", "")
+                content_type = body.get("content_type", "application/octet-stream")
+                if not data_b64:
+                    return _json_response(self, 400, error="'data' (base64) is required")
+                import base64 as _b64
+                try:
+                    file_bytes = _b64.b64decode(data_b64)
+                except Exception:
+                    return _json_response(self, 400, error="Invalid base64 data")
+                # Save to uploads dir
+                uploads_dir = Path(_db_path).parent / "uploads"
+                uploads_dir.mkdir(exist_ok=True)
+                import uuid as _uuid_mod
+                safe_name = _uuid_mod.uuid4().hex[:12] + "_" + "".join(c for c in filename if c.isalnum() or c in "._-")
+                filepath = uploads_dir / safe_name
+                filepath.write_bytes(file_bytes)
+                return _json_response(self, 201, data={
+                    "id": safe_name,
+                    "filename": filename,
+                    "content_type": content_type,
+                    "size": len(file_bytes),
+                    "url": f"/api/uploads/{safe_name}",
+                })
             if path == "/api/db/query":
                 sql = body.get("sql", "").strip()
                 if not sql:
@@ -796,27 +867,104 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                           use_count=skill["use_count"] + 1,
                           last_used=datetime.utcnow().isoformat())
 
-        # Execute prompt_template skills by substituting inputs into the template
-        if impl.get("language") == "prompt_template":
-            template = impl.get("code", "")
-            rendered = template
-            for key, value in inputs.items():
-                rendered = rendered.replace("{{" + key + "}}", str(value))
-                rendered = rendered.replace("{" + key + "}", str(value))
+        lang = impl.get("language", "")
+
+        # Substitute {key} / {{key}} placeholders regardless of language
+        code = impl.get("code", "")
+        for key, value in inputs.items():
+            code = code.replace("{{" + key + "}}", str(value))
+            code = code.replace("{" + key + "}", str(value))
+
+        if lang == "prompt_template":
             _json_response(self, 200, data={
                 "skill_id": skill_id,
                 "execution_type": "prompt_template",
-                "rendered": rendered,
+                "rendered": code,
                 "inputs": inputs,
             })
+
+        elif lang in ("python", "bash"):
+            import subprocess
+            import sys as _sys
+            import tempfile as _tempfile
+            import uuid as _uuid_mod
+
+            exec_start = time.time()
+            output = ""
+            error = ""
+            exit_code = -1
+            try:
+                if lang == "python":
+                    with _tempfile.NamedTemporaryFile(
+                        mode="w", suffix=".py", delete=False, encoding="utf-8"
+                    ) as f:
+                        f.write(code)
+                        tmp_path = f.name
+                    try:
+                        proc = subprocess.run(
+                            [_sys.executable, tmp_path],
+                            capture_output=True, text=True, timeout=30,
+                        )
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
+                else:  # bash
+                    if os.path.exists("/bin/bash"):
+                        proc = subprocess.run(
+                            code, shell=True, executable="/bin/bash",
+                            capture_output=True, text=True, timeout=30,
+                        )
+                    else:
+                        proc = subprocess.run(
+                            ["cmd", "/c", code],
+                            capture_output=True, text=True, timeout=30,
+                        )
+                output = proc.stdout or ""
+                error = proc.stderr or ""
+                exit_code = proc.returncode
+            except subprocess.TimeoutExpired:
+                error = "Execution timed out (30 s limit)"
+            except Exception as exc:
+                error = str(exc)
+
+            duration_ms = round((time.time() - exec_start) * 1000)
+
+            # Log to skill_executions (best-effort)
+            try:
+                conn.execute(
+                    "INSERT INTO skill_executions "
+                    "(id, skill_id, impl_id, agent_id, inputs, output, error, exit_code, duration_ms) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        _uuid_mod.uuid4().hex, skill_id, impl.get("id"),
+                        body.get("agent_id", "default"), json.dumps(inputs),
+                        output or None, error or None, exit_code, duration_ms,
+                    ),
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+            status_code = 200 if exit_code == 0 else 422
+            _json_response(self, status_code, data={
+                "skill_id": skill_id,
+                "execution_type": lang,
+                "output": output,
+                "error": error or None,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+            })
+
         else:
-            # code_procedure, tool_invocation, composite — return implementation for caller to run
+            # tool_invocation, composite, javascript — return impl for caller to run
             _json_response(self, 200, data={
                 "skill_id": skill_id,
-                "execution_type": impl.get("language"),
+                "execution_type": lang,
                 "implementation": impl,
                 "inputs": inputs,
-                "message": f"Return implementation to caller for {impl.get('language')} execution.",
+                "message": f"Return implementation to caller for '{lang}' execution.",
             })
 
     def _agent_goals_check(self, conn, body):
@@ -1408,6 +1556,58 @@ def _run_integrity_check(conn):
     }
 
 
+def _ensure_providers_schema(conn):
+    """Create llm_providers and skill_executions tables; migrate existing meta_config default."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_providers (
+            id            TEXT PRIMARY KEY,
+            name          TEXT NOT NULL,
+            provider_type TEXT NOT NULL DEFAULT 'claude',
+            api_key       TEXT DEFAULT '',
+            model         TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+            endpoint      TEXT DEFAULT '',
+            is_default    INTEGER DEFAULT 0,
+            description   TEXT DEFAULT '',
+            created_at    TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    # Migration-safe: add description column to pre-existing installs
+    try:
+        conn.execute("ALTER TABLE llm_providers ADD COLUMN description TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS skill_executions (
+            id          TEXT PRIMARY KEY,
+            skill_id    TEXT NOT NULL,
+            impl_id     TEXT,
+            agent_id    TEXT DEFAULT 'default',
+            inputs      TEXT DEFAULT '{}',
+            output      TEXT,
+            error       TEXT,
+            exit_code   INTEGER,
+            duration_ms INTEGER,
+            executed_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+
+    # Seed one default provider from meta_config when table is empty
+    count = conn.execute("SELECT COUNT(*) FROM llm_providers").fetchone()[0]
+    if count == 0:
+        import uuid as _uuid_mod
+        _api_key = (conn.execute("SELECT value FROM meta_config WHERE key='llm_api_key'").fetchone() or [''])[0]
+        _model = (conn.execute("SELECT value FROM meta_config WHERE key='llm_model'").fetchone() or ['claude-sonnet-4-20250514'])[0]
+        _ptype = (conn.execute("SELECT value FROM meta_config WHERE key='llm_provider'").fetchone() or ['claude'])[0]
+        if _model:
+            conn.execute(
+                "INSERT INTO llm_providers (id, name, provider_type, api_key, model, is_default) VALUES (?, ?, ?, ?, ?, 1)",
+                (str(_uuid_mod.uuid4()), 'Default', _ptype, _api_key or '', _model),
+            )
+            conn.commit()
+
+
 def run_server(db_path, host="127.0.0.1", port=8420):
     """
     Start the AgentDB HTTP server.
@@ -1417,13 +1617,22 @@ def run_server(db_path, host="127.0.0.1", port=8420):
         host: Bind address (default localhost).
         port: Port number (default 8420).
     """
-    global _db_path, _start_time, _file_watcher, _task_scheduler
+    global _db_path, _start_time, _file_watcher, _task_scheduler, _mcp_thread, _mcp_port, _mcp_started
     _db_path = db_path
     _start_time = time.time()
 
     conn = get_connection(db_path)
     ensure_scheduler_schema(conn)
-    conn.execute("CREATE TABLE IF NOT EXISTS llm_providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, provider_type TEXT NOT NULL DEFAULT 'claude', api_key TEXT DEFAULT '', model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514', endpoint TEXT DEFAULT '', is_default INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))")
+    _ensure_providers_schema(conn)
+    # Backfill any new DEFAULT_CONFIG keys into existing databases
+    from agentdb.database import DEFAULT_CONFIG
+    import uuid as _uuid_mod
+    _now = datetime.utcnow().isoformat()
+    for _k, _v in DEFAULT_CONFIG.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO meta_config (id, key, value, updated_at) VALUES (?, ?, ?, ?)",
+            (str(_uuid_mod.uuid4()), _k, _v, _now),
+        )
     conn.commit()
     conn.close()
 
@@ -1446,11 +1655,36 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     except Exception as e:
         print(f"Warning: Could not start scheduled task runner: {e}")
 
+    # Start MCP server in a daemon thread (SSE transport on port 8421)
+    try:
+        import threading as _threading
+        conn = get_connection(db_path)
+        mcp_enabled = crud.get_config_value(conn, "mcp_enabled", "true")
+        mcp_port_val = int(crud.get_config_value(conn, "mcp_port", "8421") or "8421")
+        conn.close()
+        if mcp_enabled == "true":
+            from agentdb.mcp_server import run_mcp_server
+            _mcp_port = mcp_port_val
+            _mcp_thread = _threading.Thread(
+                target=run_mcp_server,
+                args=(db_path,),
+                kwargs={"transport": "sse", "host": "127.0.0.1", "port": mcp_port_val},
+                daemon=True,
+                name="agentdb-mcp",
+            )
+            _mcp_thread.start()
+            _mcp_started = True
+            print(f"MCP server started (SSE) on port {mcp_port_val}")
+    except Exception as e:
+        print(f"Warning: Could not start MCP server: {e}")
+
     server = HTTPServer((host, port), AgentDBHandler)
     print(f"AgentDB server running at http://{host}:{port}")
     print(f"Database: {db_path}")
     print(f"Operator API: http://{host}:{port}/api/")
     print(f"Agent API:    http://{host}:{port}/api/agent/")
+    if _mcp_started:
+        print(f"MCP Server:   http://127.0.0.1:{_mcp_port}/sse")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
