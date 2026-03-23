@@ -843,6 +843,148 @@ def delete_session(conn, sid):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# SCHEDULED TASKS
+# ═══════════════════════════════════════════════════════════════════
+
+def _scheduled_task_row_to_dict(row):
+    """Convert a scheduled task row to a dict and decode JSON fields."""
+    task = _row_to_dict(row)
+    if task is None:
+        return None
+    for key in ("payload_json", "last_result_json"):
+        value = task.get(key)
+        if not value:
+            continue
+        try:
+            task[key] = json.loads(value)
+        except (TypeError, ValueError):
+            pass
+    return task
+
+
+def _scheduled_task_rows_to_list(rows):
+    """Convert a list of scheduled task rows to decoded dicts."""
+    return [_scheduled_task_row_to_dict(r) for r in rows]
+
+
+def create_scheduled_task(conn, name, action_type, interval_seconds,
+                          next_run_at, description=None, agent_id="default",
+                          schedule_type="interval", payload_json=None,
+                          status="active"):
+    """Create a scheduled task."""
+    tid = _new_id()
+    conn.execute(
+        """INSERT INTO scheduled_tasks
+           (id, name, description, agent_id, action_type, schedule_type,
+            interval_seconds, payload_json, status, next_run_at,
+            created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            tid, name, description, agent_id, action_type, schedule_type,
+            interval_seconds,
+            json.dumps(payload_json) if isinstance(payload_json, (dict, list)) else payload_json,
+            status, next_run_at, _now(), _now(),
+        ),
+    )
+    conn.commit()
+    return tid
+
+
+def get_scheduled_task(conn, task_id):
+    """Retrieve a single scheduled task by ID."""
+    row = conn.execute(
+        "SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,)
+    ).fetchone()
+    return _scheduled_task_row_to_dict(row)
+
+
+def list_scheduled_tasks(conn, status=None, agent_id=None, limit=100, offset=0):
+    """List scheduled tasks with optional filters."""
+    query = "SELECT * FROM scheduled_tasks WHERE 1=1"
+    params = []
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    if agent_id:
+        query += " AND agent_id = ?"
+        params.append(agent_id)
+    query += " ORDER BY next_run_at ASC, created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    rows = conn.execute(query, params).fetchall()
+    return _scheduled_task_rows_to_list(rows)
+
+
+def list_due_scheduled_tasks(conn, now=None, limit=20):
+    """List active scheduled tasks due to run."""
+    now = now or _now()
+    rows = conn.execute(
+        """SELECT * FROM scheduled_tasks
+           WHERE status = 'active' AND next_run_at <= ?
+           ORDER BY next_run_at ASC LIMIT ?""",
+        (now, limit),
+    ).fetchall()
+    return _scheduled_task_rows_to_list(rows)
+
+
+def update_scheduled_task(conn, task_id, **kwargs):
+    """Update fields on a scheduled task."""
+    allowed = {
+        "name", "description", "agent_id", "action_type", "schedule_type",
+        "interval_seconds", "payload_json", "status", "next_run_at",
+        "last_run_at", "last_result_json", "last_error",
+    }
+    updates = {}
+    for k, v in kwargs.items():
+        if k not in allowed:
+            continue
+        if k in ("payload_json", "last_result_json") and isinstance(v, (dict, list)):
+            v = json.dumps(v)
+        updates[k] = v
+    if not updates:
+        return False
+    updates["updated_at"] = _now()
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [task_id]
+    conn.execute(
+        f"UPDATE scheduled_tasks SET {set_clause} WHERE id = ?", values
+    )
+    conn.commit()
+    return True
+
+
+def record_scheduled_task_success(conn, task_id, last_run_at, next_run_at,
+                                  result=None, status="active"):
+    """Record a successful scheduled task run."""
+    return update_scheduled_task(
+        conn,
+        task_id,
+        last_run_at=last_run_at,
+        next_run_at=next_run_at,
+        last_result_json=result,
+        last_error=None,
+        status=status,
+    )
+
+
+def record_scheduled_task_failure(conn, task_id, last_run_at, error,
+                                  status="error"):
+    """Record a failed scheduled task run."""
+    return update_scheduled_task(
+        conn,
+        task_id,
+        last_run_at=last_run_at,
+        last_error=str(error),
+        status=status,
+    )
+
+
+def delete_scheduled_task(conn, task_id):
+    """Delete a scheduled task."""
+    conn.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+    conn.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════
 # META CONFIG
 # ═══════════════════════════════════════════════════════════════════
 

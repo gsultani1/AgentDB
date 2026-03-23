@@ -312,6 +312,30 @@ CREATE TABLE IF NOT EXISTS notification_queue (
 );
 """
 
+CREATE_SCHEDULED_TASKS = """
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    description      TEXT,
+    agent_id         TEXT NOT NULL DEFAULT 'default' REFERENCES agents(id),
+    action_type      TEXT NOT NULL CHECK(action_type IN (
+                         'notify', 'consolidate', 'sleep_cycle',
+                         'workspace_scan', 'integrity_check')),
+    schedule_type    TEXT NOT NULL DEFAULT 'interval' CHECK(schedule_type IN (
+                         'interval')),
+    interval_seconds INTEGER NOT NULL CHECK(interval_seconds > 0),
+    payload_json     JSON,
+    status           TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
+                         'active', 'paused', 'error')),
+    next_run_at      DATETIME NOT NULL,
+    last_run_at      DATETIME,
+    last_result_json JSON,
+    last_error       TEXT,
+    created_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at       DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
 # ── Performance Optimization ──
 
 CREATE_VIEWS = """
@@ -386,6 +410,9 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_notif_agent ON notification_queue(agent_id);",
     "CREATE INDEX IF NOT EXISTS idx_notif_read ON notification_queue(read);",
     "CREATE INDEX IF NOT EXISTS idx_notif_priority ON notification_queue(priority);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_status ON scheduled_tasks(status);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON scheduled_tasks(next_run_at);",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON scheduled_tasks(agent_id);",
     "CREATE INDEX IF NOT EXISTS idx_agents_last_active ON agents(last_active);",
 ]
 
@@ -560,6 +587,10 @@ FTS_SYNC_TRIGGERS = [
     # LTM
     "CREATE TRIGGER IF NOT EXISTS ltm_fts_insert AFTER INSERT ON long_term_memory BEGIN INSERT INTO ltm_fts(rowid, content) VALUES (new.rowid, new.content); END;",
     "CREATE TRIGGER IF NOT EXISTS ltm_fts_delete AFTER DELETE ON long_term_memory BEGIN INSERT INTO ltm_fts(ltm_fts, rowid, content) VALUES('delete', old.rowid, old.content); END;",
+    # UPDATE triggers — keep FTS index consistent when content changes
+    "CREATE TRIGGER IF NOT EXISTS stm_fts_update AFTER UPDATE OF content ON short_term_memory BEGIN INSERT INTO stm_fts(stm_fts, rowid, content) VALUES('delete', old.rowid, old.content); INSERT INTO stm_fts(rowid, content) VALUES (new.rowid, new.content); END;",
+    "CREATE TRIGGER IF NOT EXISTS mtm_fts_update AFTER UPDATE OF content ON midterm_memory BEGIN INSERT INTO mtm_fts(mtm_fts, rowid, content) VALUES('delete', old.rowid, old.content); INSERT INTO mtm_fts(rowid, content) VALUES (new.rowid, new.content); END;",
+    "CREATE TRIGGER IF NOT EXISTS ltm_fts_update AFTER UPDATE OF content ON long_term_memory BEGIN INSERT INTO ltm_fts(ltm_fts, rowid, content) VALUES('delete', old.rowid, old.content); INSERT INTO ltm_fts(rowid, content) VALUES (new.rowid, new.content); END;",
 ]
 
 ALL_TABLES = [
@@ -583,6 +614,7 @@ ALL_TABLES = [
     CREATE_FEEDBACK,
     CREATE_CONTEXT_SNAPSHOTS,
     CREATE_NOTIFICATION_QUEUE,
+    CREATE_SCHEDULED_TASKS,
     CREATE_VIEWS,
     CREATE_EMBEDDINGS_CACHE,
 ]

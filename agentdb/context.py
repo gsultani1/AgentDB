@@ -24,7 +24,8 @@ from agentdb.embeddings import (
 )
 
 
-def retrieve_context(conn, query, filters=None, config=None, agent_id=None):
+def retrieve_context(conn, query, filters=None, config=None, agent_id=None,
+                     include_agents=None):
     """
     Execute the full multi-strategy context retrieval pipeline.
 
@@ -39,6 +40,10 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None):
             - confidence_min: float minimum confidence
         config: dict of meta_config overrides (uses DB defaults if None)
         agent_id: str, scope retrieval to this agent + 'shared' memories.
+        include_agents: list[str] of additional agent IDs whose memories are
+            included alongside agent_id and 'shared'.  Useful for multi-agent
+            workspaces where agents need selective visibility into each other's
+            knowledge (e.g. a supervisor reading a sub-agent's memories).
 
     Returns:
         dict with keys: memories, entities, goals, skills, retrieval_strategies
@@ -57,6 +62,8 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None):
     temporal_curve = float(config.get("temporal_decay_curve", "0.95"))
 
     strategies_used = ["semantic"]
+    # Compute once; used in semantic, BM25, and graph stages for consistent scoping
+    _agent_set = _build_agent_set(agent_id, include_agents)
 
     # Stage 1: Generate query embedding
     query_embedding = generate_embedding(query)
@@ -74,7 +81,9 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None):
     for tier_key, (table, label) in tier_map.items():
         if tier_key not in tiers_to_search:
             continue
-        candidates = _get_memory_candidates(conn, table, filters, agent_id=agent_id)
+        candidates = _get_memory_candidates(conn, table, filters,
+                                            agent_id=agent_id,
+                                            include_agents=include_agents)
         results = semantic_search(query_embedding, candidates, top_k=top_k * 2)
         for mid, score in results:
             row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (mid,)).fetchone()
@@ -95,7 +104,8 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None):
         for tier_key, (fts_table, base_table, label) in fts_map.items():
             if tier_key not in tiers_to_search:
                 continue
-            bm25_hits = _bm25_search(conn, fts_table, base_table, label, query, agent_id, top_k)
+            bm25_hits = _bm25_search(conn, fts_table, base_table, label, query,
+                                     agent_id, top_k, include_agents=include_agents)
             for mid, bm25_score, entry in bm25_hits:
                 if mid in all_results:
                     all_results[mid]["bm25"] = bm25_score
@@ -116,6 +126,9 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None):
                         row = conn.execute(f"SELECT * FROM {other_table} WHERE id = ?", (other_id,)).fetchone()
                         if row:
                             entry = dict(row)
+                            # Respect agent scope: skip cross-agent memories unless included
+                            if _agent_set is not None and entry.get("agent_id") not in _agent_set:
+                                continue
                             tier_label = {"short_term_memory": "short_term", "midterm_memory": "midterm", "long_term_memory": "long_term"}.get(other_table, other_table)
                             entry["tier"] = tier_label
                             entry.pop("embedding", None)
@@ -200,14 +213,42 @@ def _load_retrieval_config(conn):
     return config
 
 
-def _get_memory_candidates(conn, table, filters, agent_id=None):
-    """Fetch (id, embedding) pairs from a memory table with optional filters and agent scoping."""
+def _build_agent_set(agent_id, include_agents):
+    """
+    Build the set of agent IDs to include in a scoped query.
+
+    Rules:
+    - No agent_id and no include_agents → None (unscoped, return all)
+    - agent_id set → always includes agent_id + 'shared'
+    - include_agents → each listed agent ID is also included
+
+    Returns a list suitable for SQL IN (?) or None for no filter.
+    """
+    if not agent_id and not include_agents:
+        return None
+    ids = {"shared"}
+    if agent_id:
+        ids.add(agent_id)
+    if include_agents:
+        ids.update(include_agents)
+    return list(ids)
+
+
+def _get_memory_candidates(conn, table, filters, agent_id=None, include_agents=None):
+    """Fetch (id, embedding) pairs from a memory table with optional filters and agent scoping.
+
+    agent_id scopes to that agent + 'shared'.  include_agents extends that set
+    to additional named agents (useful for cross-agent reads without opening
+    full unscoped access).
+    """
     query = f"SELECT id, embedding FROM {table} WHERE embedding IS NOT NULL"
     params = []
 
-    if agent_id:
-        query += " AND (agent_id = ? OR agent_id = 'shared')"
-        params.append(agent_id)
+    agent_set = _build_agent_set(agent_id, include_agents)
+    if agent_set is not None:
+        placeholders = ",".join("?" * len(agent_set))
+        query += f" AND agent_id IN ({placeholders})"
+        params.extend(agent_set)
 
     confidence_min = filters.get("confidence_min")
     if confidence_min is not None and table in ("midterm_memory", "long_term_memory"):
@@ -228,7 +269,8 @@ def _get_memory_candidates(conn, table, filters, agent_id=None):
     return [(r["id"], r["embedding"]) for r in rows]
 
 
-def _bm25_search(conn, fts_table, base_table, tier_label, query_text, agent_id, top_k):
+def _bm25_search(conn, fts_table, base_table, tier_label, query_text, agent_id,
+                 top_k, include_agents=None):
     """Run BM25 keyword search via FTS5. Returns list of (id, score, entry) tuples."""
     results = []
     try:
@@ -246,9 +288,11 @@ def _bm25_search(conn, fts_table, base_table, tier_label, query_text, agent_id, 
         """
         params = [fts_query]
 
-        if agent_id:
-            sql += " AND (b.agent_id = ? OR b.agent_id = 'shared')"
-            params.append(agent_id)
+        agent_set = _build_agent_set(agent_id, include_agents)
+        if agent_set is not None:
+            placeholders = ",".join("?" * len(agent_set))
+            sql += f" AND b.agent_id IN ({placeholders})"
+            params.extend(agent_set)
 
         sql += f" ORDER BY rank LIMIT {top_k}"
 

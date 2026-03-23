@@ -2,15 +2,45 @@
 Database initialization and connection management for AgentDB.
 
 Handles schema creation, trigger installation, WAL mode configuration,
-and default meta_config seeding.
+default meta_config seeding, and optional SQLCipher encryption.
+
+SQLCipher support
+─────────────────
+Install `sqlcipher3` (pip install sqlcipher3) or `pysqlcipher3` to enable
+at-rest encryption.  The passphrase is read from the AGENTDB_PASSPHRASE
+environment variable, or passed explicitly to get_connection().
+
+When encryption_enabled = "true" in meta_config but no passphrase is
+available, get_connection() falls back to plain SQLite and logs a warning.
 """
 
+import os
 import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from agentdb.schema import ALL_TABLES, ALL_TRIGGERS, CREATE_INDEXES, CREATE_FTS_TABLES, FTS_SYNC_TRIGGERS
+
+
+# ── SQLCipher detection ───────────────────────────────────────────────────────
+
+def _try_import_sqlcipher():
+    """Return the sqlcipher sqlite3-compatible module, or None if unavailable."""
+    try:
+        from sqlcipher3 import dbapi2 as sqlcipher
+        return sqlcipher
+    except ImportError:
+        pass
+    try:
+        from pysqlcipher3 import dbapi2 as sqlcipher
+        return sqlcipher
+    except ImportError:
+        pass
+    return None
+
+
+_SQLCIPHER = _try_import_sqlcipher()
 
 
 DEFAULT_CONFIG = {
@@ -31,6 +61,7 @@ DEFAULT_CONFIG = {
     "llm_model": "claude-sonnet-4-20250514",
     "llm_endpoint": "",
     "agent_api_key": "",
+    "operator_api_key": "",
     "max_context_tokens": "4000",
     "consolidation_enabled": "true",
     "decay_enabled": "true",
@@ -40,6 +71,8 @@ DEFAULT_CONFIG = {
     "sleep_idle_threshold_seconds": "300",
     "sleep_reflection_enabled": "true",
     "sleep_graph_pruning_threshold_days": "60",
+    "sleep_goal_monitor_window_hours": "24",
+    "min_relation_weight": "0.05",
     "notification_webhook_url": "",
     "notification_priority_threshold": "medium",
     "encryption_enabled": "false",
@@ -49,25 +82,84 @@ DEFAULT_CONFIG = {
     "graph_traversal_enabled": "true",
     "temporal_boost_enabled": "true",
     "temporal_decay_curve": "0.95",
+    "scheduler_enabled": "true",
+    "scheduler_poll_interval_seconds": "5",
 }
 
 
-def get_connection(db_path):
+def get_connection(db_path, passphrase=None):
     """
     Open a connection to the AgentDB SQLite database.
 
     Args:
-        db_path: Path to the .db file (str or Path).
+        db_path:    Path to the .db file (str or Path).
+        passphrase: Optional encryption passphrase.  When None, the value of
+                    the AGENTDB_PASSPHRASE environment variable is used.  If
+                    neither is set, or if SQLCipher is not installed, a plain
+                    SQLite connection is returned.
 
     Returns:
-        sqlite3.Connection with WAL mode and foreign keys enabled.
+        sqlite3.Connection (or sqlcipher3 equivalent) with WAL mode and
+        foreign keys enabled.
     """
     db_path = str(db_path)
+    passphrase = passphrase or os.environ.get("AGENTDB_PASSPHRASE")
+
+    if passphrase and _SQLCIPHER is not None:
+        conn = _SQLCIPHER.connect(db_path)
+        # PRAGMA key must be the very first statement on an encrypted database
+        conn.execute(f"PRAGMA key = '{passphrase}';")
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA foreign_keys=ON;")
+        conn.row_factory = _SQLCIPHER.Row
+        return conn
+
+    if passphrase and _SQLCIPHER is None:
+        print(
+            "Warning: AGENTDB_PASSPHRASE is set but sqlcipher3 / pysqlcipher3 "
+            "is not installed. Falling back to plain SQLite (data unencrypted)."
+        )
+
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def encryption_status():
+    """Return a dict describing the current SQLCipher availability."""
+    return {
+        "sqlcipher_available": _SQLCIPHER is not None,
+        "passphrase_set": bool(os.environ.get("AGENTDB_PASSPHRASE")),
+        "library": (
+            "sqlcipher3" if _SQLCIPHER is not None else None
+        ),
+    }
+
+
+def rekey_database(db_path, old_passphrase, new_passphrase):
+    """
+    Change the encryption passphrase on an existing SQLCipher database.
+
+    Args:
+        db_path:        Path to the encrypted .db file.
+        old_passphrase: Current passphrase (or None for an unencrypted DB).
+        new_passphrase: New passphrase (or None to decrypt).
+
+    Raises:
+        RuntimeError if SQLCipher is not available.
+    """
+    if _SQLCIPHER is None:
+        raise RuntimeError(
+            "sqlcipher3 or pysqlcipher3 must be installed to use rekey_database."
+        )
+    conn = get_connection(db_path, passphrase=old_passphrase)
+    if new_passphrase:
+        conn.execute(f"PRAGMA rekey = '{new_passphrase}';")
+    else:
+        conn.execute("PRAGMA rekey = '';")
+    conn.close()
 
 
 def initialize_database(db_path):
@@ -111,6 +203,23 @@ def initialize_database(db_path):
             cursor.execute(trigger)
         except Exception:
             pass  # FTS5 may not be available on all SQLite builds
+
+    # Backfill FTS tables for any pre-existing rows (safe to run on fresh or upgraded DBs)
+    for base_table, fts_table in [
+        ("short_term_memory", "stm_fts"),
+        ("midterm_memory", "mtm_fts"),
+        ("long_term_memory", "ltm_fts"),
+    ]:
+        try:
+            fts_count = cursor.execute(f"SELECT COUNT(*) FROM {fts_table}").fetchone()[0]
+            base_count = cursor.execute(f"SELECT COUNT(*) FROM {base_table}").fetchone()[0]
+            if fts_count < base_count:
+                cursor.execute(
+                    f"INSERT INTO {fts_table}(rowid, content) "
+                    f"SELECT rowid, content FROM {base_table}"
+                )
+        except Exception:
+            pass  # FTS5 not available
 
     # Seed default configuration
     _seed_default_config(cursor)
@@ -162,7 +271,7 @@ def verify_schema(conn):
         "skills", "skill_implementations", "relations", "entities",
         "goals", "tags", "tag_assignments", "workspaces", "workspace_files",
         "sessions", "meta_config", "contradictions", "audit_log",
-        "feedback", "context_snapshots", "notification_queue",
+        "feedback", "context_snapshots", "notification_queue", "scheduled_tasks",
         "views", "embeddings_cache",
     ]
     cursor = conn.cursor()

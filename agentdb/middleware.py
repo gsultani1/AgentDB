@@ -356,11 +356,19 @@ def get_llm_config(conn):
     return config
 
 
-def get_identity_memories(conn):
-    """Retrieve all identity and directive long-term memories."""
-    rows = conn.execute(
-        "SELECT * FROM long_term_memory WHERE category IN ('identity', 'directive')"
-    ).fetchall()
+def get_identity_memories(conn, agent_id=None):
+    """Retrieve identity and directive long-term memories, scoped to agent_id + 'shared'."""
+    if agent_id:
+        rows = conn.execute(
+            "SELECT * FROM long_term_memory "
+            "WHERE category IN ('identity', 'directive') "
+            "AND (agent_id = ? OR agent_id = 'shared')",
+            (agent_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM long_term_memory WHERE category IN ('identity', 'directive')"
+        ).fetchall()
     result = []
     for row in rows:
         entry = dict(row)
@@ -394,8 +402,8 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None,
     # Retrieve context
     context_payload = retrieve_context(conn, user_message, agent_id=agent_id)
 
-    # Add identity memories to context payload
-    identity = get_identity_memories(conn)
+    # Add identity memories to context payload (scoped to agent)
+    identity = get_identity_memories(conn, agent_id=agent_id)
     context_payload["identity"] = identity
 
     # Format context for the provider

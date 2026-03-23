@@ -52,16 +52,57 @@ def _get_conn():
 
 
 def _check_agent_api_key(handler):
-    """Validate the agent API key from the X-API-Key header. Returns True if authorized."""
+    """
+    Validate the agent API key. Returns (authorized: bool, derived_agent_id: str | None).
+
+    Lookup order:
+    1. Per-agent key stored in agents.config as {"api_key": "..."} — if matched,
+       derived_agent_id is set to that agent's id, overriding any body agent_id.
+    2. Global agent_api_key in meta_config — matched key leaves agent_id body-provided.
+    3. No key configured → open-by-default (True, None).
+    """
     conn = _get_conn()
     try:
-        configured_key = conn.execute(
+        provided_key = handler.headers.get("X-API-Key", "")
+
+        # 1. Per-agent key lookup
+        if provided_key:
+            row = conn.execute(
+                "SELECT id FROM agents WHERE json_extract(config, '$.api_key') = ?",
+                (provided_key,),
+            ).fetchone()
+            if row:
+                return True, row["id"]
+
+        # 2. Global shared key
+        configured = conn.execute(
             "SELECT value FROM meta_config WHERE key = 'agent_api_key'"
         ).fetchone()
-        if configured_key is None or not configured_key[0]:
-            return True
-        provided_key = handler.headers.get("X-API-Key", "")
-        return provided_key == configured_key[0]
+        if configured is None or not configured[0]:
+            return True, None
+        return provided_key == configured[0], None
+    finally:
+        conn.close()
+
+
+def _check_operator_auth(handler):
+    """
+    Validate operator access via Authorization: Bearer <key> or X-API-Key header.
+    Returns True if authorized. Open-by-default when operator_api_key is empty.
+    """
+    conn = _get_conn()
+    try:
+        configured = conn.execute(
+            "SELECT value FROM meta_config WHERE key = 'operator_api_key'"
+        ).fetchone()
+        if configured is None or not configured[0]:
+            return True  # no key configured — open
+        expected = configured[0]
+        # Accept either Bearer token or X-API-Key
+        auth_header = handler.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:] == expected
+        return handler.headers.get("X-API-Key", "") == expected
     finally:
         conn.close()
 
@@ -113,18 +154,36 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         """Override to use simpler logging."""
         pass
 
-    def _serve_static(self, filename):
-        """Serve a static file from the static directory."""
-        filepath = _static_dir / filename
-        if not filepath.exists():
-            self.send_response(404)
+    _MIME_TYPES = {
+        '.html': 'text/html; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.js': 'application/javascript; charset=utf-8',
+        '.json': 'application/json',
+        '.svg': 'image/svg+xml',
+        '.png': 'image/png',
+        '.ico': 'image/x-icon',
+        '.woff2': 'font/woff2',
+        '.woff': 'font/woff',
+        '.ttf': 'font/ttf',
+    }
+
+    def _serve_static(self, relative_path):
+        """Serve a static file from the static directory with proper MIME types."""
+        filepath = (_static_dir / relative_path).resolve()
+        static_root = _static_dir.resolve()
+        if not str(filepath).startswith(str(static_root)):
+            self.send_response(403)
             self.end_headers()
             return
+        if not filepath.is_file():
+            return self._serve_static("index.html") if relative_path != "index.html" else None
         content = filepath.read_bytes()
+        ext = filepath.suffix.lower()
+        ct = self._MIME_TYPES.get(ext, 'application/octet-stream')
         self.send_response(200)
-        ct = "text/html" if filename.endswith(".html") else "application/octet-stream"
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-cache" if ext == '.html' else "public, max-age=3600")
         self.end_headers()
         self.wfile.write(content)
 
@@ -141,10 +200,13 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _require_agent_auth(self):
-        """Check API key for agent endpoints. Returns False and sends 401 if unauthorized."""
-        if not _check_agent_api_key(self):
+        """Check API key for agent endpoints. Returns False and sends 401 if unauthorized.
+        Sets self._derived_agent_id to the agent bound to the presented key, or None."""
+        authorized, derived = _check_agent_api_key(self)
+        if not authorized:
             _json_response(self, 401, error="Invalid or missing API key. Set X-API-Key header.")
             return False
+        self._derived_agent_id = derived
         return True
 
     def do_GET(self):
@@ -155,6 +217,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         # Serve static UI
         if path in ("", "/", "/index.html"):
             return self._serve_static("index.html")
+
+        # Serve static assets (css, js, images)
+        if not path.startswith("/api/"):
+            return self._serve_static(path.lstrip("/"))
 
         try:
             self._route_get(path, query_params)
@@ -190,6 +256,9 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             _json_response(self, 500, error=str(e))
 
     def _route_delete(self, path):
+        if path.startswith("/api/"):
+            if not _check_operator_auth(self):
+                return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
         conn = _get_conn()
         try:
             m = _match("/api/memories/short/{id}", path)
@@ -229,6 +298,11 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_get(self, path, qp):
+        # Operator auth on all /api/* routes (health exempt for monitoring)
+        if path.startswith("/api/") and path not in ("/api/agent/health",):
+            if not _check_operator_auth(self):
+                return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
+
         # Enforce API key on agent routes (health is exempt for monitoring)
         if path.startswith("/api/agent/") and path != "/api/agent/health":
             if not self._require_agent_auth():
@@ -265,12 +339,21 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return self._op_agents_list(conn)
             if path == "/api/notifications":
                 return self._op_notifications_list(conn, qp)
+            if path == "/api/mcp/status":
+                return _json_response(self, 200, data={
+                    "enabled": crud.get_config_value(conn, "mcp_enabled", "false") == "true",
+                    "transport": crud.get_config_value(conn, "mcp_transport", "stdio"),
+                    "port": int(crud.get_config_value(conn, "mcp_port", "8421")),
+                })
             if path == "/api/import/status":
                 if _last_import_result:
                     return _json_response(self, 200, data=_last_import_result)
                 return _json_response(self, 200, data={"status": "idle"})
             if path == "/api/markdown/watcher/status":
                 return self._op_watcher_status(conn)
+            if path == "/api/encryption/status":
+                from agentdb.database import encryption_status
+                return _json_response(self, 200, data=encryption_status())
 
             # Parameterized routes
             m = _match("/api/memories/{tier}", path)
@@ -294,6 +377,12 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             m = _match("/api/markdown/reverse/{table}/{id}", path)
             if m:
                 return self._op_markdown_reverse(conn, m["table"], m["id"])
+            m = _match("/api/workspaces/{id}/files", path)
+            if m:
+                files = crud.list_workspace_files(conn, m["id"])
+                for f in files:
+                    f.pop("embedding", None)
+                return _json_response(self, 200, data=files)
             m = _match("/api/agents/{id}", path)
             if m:
                 agent = crud.get_agent(conn, m["id"])
@@ -310,6 +399,11 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_post(self, path, body):
+        # Operator auth on all /api/* routes
+        if path.startswith("/api/"):
+            if not _check_operator_auth(self):
+                return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
+
         # Enforce API key on agent routes
         if path.startswith("/api/agent/"):
             if not self._require_agent_auth():
@@ -366,22 +460,29 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 result = run_consolidation_cycle(conn)
                 return _json_response(self, 200, data=result)
             if path == "/api/maintenance/sleep-cycle":
-                from agentdb.consolidation import run_consolidation_cycle
-                result = run_consolidation_cycle(conn)
-                result["message"] = "Sleep-time cycle completed"
+                from agentdb.sleep import run_sleep_cycle
+                result = run_sleep_cycle(conn)
                 return _json_response(self, 200, data=result)
             if path == "/api/maintenance/integrity-check":
                 result = _run_integrity_check(conn)
                 return _json_response(self, 200, data=result)
             if path == "/api/workspaces/scan":
+                # Scan all registered workspaces
+                from agentdb.workspace_scanner import scan_workspace
                 workspaces = crud.list_workspaces(conn)
-                scanned = 0
+                results = []
                 for ws in workspaces:
-                    root = ws.get("root_path") or ws.get("path", "")
-                    if root and os.path.isdir(root):
-                        for dirpath, dirs, files in os.walk(root):
-                            scanned += len(files)
-                return _json_response(self, 200, data={"workspaces_checked": len(workspaces), "files_found": scanned})
+                    results.append(scan_workspace(conn, ws["id"]))
+                return _json_response(self, 200, data={"workspaces": results})
+            if path == "/api/encryption/rekey":
+                from agentdb.database import rekey_database
+                old_pass = body.get("old_passphrase")
+                new_pass = body.get("new_passphrase")
+                try:
+                    rekey_database(_db_path, old_pass, new_pass)
+                    return _json_response(self, 200, data={"rekeyed": True})
+                except RuntimeError as e:
+                    return _json_response(self, 400, error=str(e))
             if path == "/api/markdown/submit":
                 return self._op_markdown_submit(conn, body)
             if path == "/api/markdown/batch":
@@ -399,6 +500,14 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 _last_import_result = {**result, "status": "completed"}
                 return _json_response(self, 200, data=_last_import_result)
 
+            m = _match("/api/agents/{id}/rotate-key", path)
+            if m:
+                return self._op_agent_rotate_key(conn, m["id"])
+            m = _match("/api/workspaces/{id}/scan", path)
+            if m:
+                from agentdb.workspace_scanner import scan_workspace
+                result = scan_workspace(conn, m["id"])
+                return _json_response(self, 200, data=result)
             m = _match("/api/contradictions/{id}/resolve", path)
             if m:
                 return self._op_contradiction_resolve(conn, m["id"], body)
@@ -415,6 +524,9 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_put(self, path, body):
+        if path.startswith("/api/"):
+            if not _check_operator_auth(self):
+                return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
         conn = _get_conn()
         try:
             m = _match("/api/config/{key}", path)
@@ -480,8 +592,12 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         if not query:
             return _json_response(self, 400, error="'query' is required")
         filters = body.get("filters", {})
-        agent_id = body.get("agent_id")
-        payload = retrieve_context(conn, query, filters=filters, agent_id=agent_id)
+        agent_id = getattr(self, "_derived_agent_id", None) or body.get("agent_id")
+        include_agents = body.get("include_agents")  # list[str] | None
+        if include_agents is not None and not isinstance(include_agents, list):
+            return _json_response(self, 400, error="'include_agents' must be a list of agent ID strings")
+        payload = retrieve_context(conn, query, filters=filters, agent_id=agent_id,
+                                   include_agents=include_agents)
         _json_response(self, 200, data=payload)
 
     def _agent_ingest(self, conn, body):
@@ -490,7 +606,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             return _json_response(self, 400, error="'content' is required")
         source = body.get("source", "conversation")
         session_id = body.get("session_id")
-        agent_id = body.get("agent_id", "default")
+        agent_id = getattr(self, "_derived_agent_id", None) or body.get("agent_id", "default")
         embedding = embedding_to_blob(generate_embedding(content))
         mid = crud.create_short_term_memory(
             conn, content, source, embedding=embedding, session_id=session_id,
@@ -502,7 +618,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         observations = body.get("observations", [])
         if not observations:
             return _json_response(self, 400, error="'observations' array is required")
-        batch_agent_id = body.get("agent_id", "default")
+        batch_agent_id = getattr(self, "_derived_agent_id", None) or body.get("agent_id", "default")
         ids = []
         for obs in observations:
             content = obs.get("content", "")
@@ -633,7 +749,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         if not session_id:
             return _json_response(self, 400, error="'session_id' is required")
         history = body.get("history", [])
-        agent_id = body.get("agent_id")
+        agent_id = getattr(self, "_derived_agent_id", None) or body.get("agent_id")
         result = execute_chat_pipeline(conn, message, session_id, messages_history=history, agent_id=agent_id)
         _json_response(self, 200, data=result)
 
@@ -1029,6 +1145,21 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         config = body.get("config")
         crud.create_agent(conn, agent_id, name, description=description, config=config)
         _json_response(self, 201, data={"id": agent_id})
+
+    def _op_agent_rotate_key(self, conn, agent_id):
+        import secrets
+        agent = crud.get_agent(conn, agent_id)
+        if not agent:
+            return _json_response(self, 404, error="Agent not found")
+        config = agent.get("config") or {}
+        if isinstance(config, str):
+            import json as _json
+            config = _json.loads(config) if config else {}
+        new_key = secrets.token_urlsafe(32)
+        config["api_key"] = new_key
+        crud.update_agent(conn, agent_id, config=json.dumps(config))
+        _json_response(self, 200, data={"agent_id": agent_id, "api_key": new_key,
+                                        "note": "Store this key; it will not be shown again."})
 
     def _op_notifications_list(self, conn, qp):
         read = qp.get("read", [None])[0]

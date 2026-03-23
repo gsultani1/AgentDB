@@ -220,6 +220,16 @@ def cmd_serve(args):
     run_server(str(db_path), host=args.host, port=args.port)
 
 
+def cmd_mcp(args):
+    """Start the MCP server."""
+    db_path = Path(args.db)
+    if not db_path.exists():
+        print(f"Database not found at {db_path}. Run 'agentdb init' first.")
+        sys.exit(1)
+    from agentdb.mcp_server import run_mcp_server
+    run_mcp_server(str(db_path), transport=args.transport)
+
+
 def build_parser():
     """Build the argument parser."""
     parser = argparse.ArgumentParser(
@@ -289,6 +299,12 @@ def build_parser():
     p_serve = subparsers.add_parser("serve", help="Start the HTTP server")
     p_serve.add_argument("--host", default="127.0.0.1", help="Bind address")
     p_serve.add_argument("--port", type=int, default=8420, help="Port number")
+
+    # mcp
+    p_mcp = subparsers.add_parser("mcp", help="Start the MCP server")
+    p_mcp.add_argument("--transport", choices=["stdio", "sse"], default="stdio",
+                        help="MCP transport type")
+    p_mcp.add_argument("--port", type=int, default=8421, help="Port for SSE transport")
 
     return parser
 
