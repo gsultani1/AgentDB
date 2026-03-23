@@ -369,7 +369,7 @@ def get_identity_memories(conn):
     return result
 
 
-def execute_chat_pipeline(conn, user_message, session_id, messages_history=None):
+def execute_chat_pipeline(conn, user_message, session_id, messages_history=None, agent_id=None):
     """
     Full chat pipeline: retrieve context, call LLM, ingest exchange, return observability payload.
 
@@ -378,6 +378,7 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None)
         user_message: str, the user's message.
         session_id: str, active session ID.
         messages_history: list of previous {"role", "content"} dicts (optional).
+        agent_id: str, scope retrieval and ingestion to this agent (optional).
 
     Returns:
         dict with keys: response, context_payload, snapshot_id, ingested_ids
@@ -391,7 +392,7 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None)
     adapter = get_adapter(provider_name)
 
     # Retrieve context
-    context_payload = retrieve_context(conn, user_message)
+    context_payload = retrieve_context(conn, user_message, agent_id=agent_id)
 
     # Add identity memories to context payload
     identity = get_identity_memories(conn)
@@ -416,15 +417,16 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None)
         llm_error = str(e)
 
     # Ingest user message and AI response
+    ingest_agent = agent_id or "default"
     user_emb = embedding_to_blob(generate_embedding(user_message))
     user_mem_id = crud.create_short_term_memory(
         conn, user_message, "conversation",
-        embedding=user_emb, session_id=session_id,
+        embedding=user_emb, session_id=session_id, agent_id=ingest_agent,
     )
     ai_emb = embedding_to_blob(generate_embedding(ai_response))
     ai_mem_id = crud.create_short_term_memory(
         conn, ai_response, "conversation",
-        embedding=ai_emb, session_id=session_id,
+        embedding=ai_emb, session_id=session_id, agent_id=ingest_agent,
     )
 
     # Create context snapshot

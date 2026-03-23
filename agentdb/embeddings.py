@@ -137,3 +137,30 @@ def semantic_search(query_embedding, candidates, top_k=10):
 
     results.sort(key=lambda x: x[1], reverse=True)
     return results[:top_k]
+
+
+def bm25_search(conn, query, table, fts_table, top_k=10):
+    """
+    Keyword search using SQLite FTS5 BM25 ranking.
+
+    Returns list of (id, score) tuples where score is normalized to [0, 1].
+    """
+    # FTS5 MATCH syntax: quote terms for safety
+    try:
+        rows = conn.execute(
+            f"SELECT {table}.id, {fts_table}.rank FROM {fts_table} "
+            f"JOIN {table} ON {table}.rowid = {fts_table}.rowid "
+            f"WHERE {fts_table} MATCH ? ORDER BY {fts_table}.rank LIMIT ?",
+            (query, top_k)
+        ).fetchall()
+    except Exception:
+        return []
+
+    if not rows:
+        return []
+
+    # FTS5 rank is negative (more negative = better match)
+    # Normalize to [0, 1] range
+    scores = [abs(r[1]) for r in rows]
+    max_score = max(scores) if scores else 1.0
+    return [(r[0], abs(r[1]) / max_score) for r in rows]

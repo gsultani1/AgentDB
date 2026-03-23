@@ -550,6 +550,18 @@ CREATE_FTS_TABLES = [
     "CREATE VIRTUAL TABLE IF NOT EXISTS ltm_fts USING fts5(content, content='long_term_memory', content_rowid='rowid');",
 ]
 
+FTS_SYNC_TRIGGERS = [
+    # STM
+    "CREATE TRIGGER IF NOT EXISTS stm_fts_insert AFTER INSERT ON short_term_memory BEGIN INSERT INTO stm_fts(rowid, content) VALUES (new.rowid, new.content); END;",
+    "CREATE TRIGGER IF NOT EXISTS stm_fts_delete AFTER DELETE ON short_term_memory BEGIN INSERT INTO stm_fts(stm_fts, rowid, content) VALUES('delete', old.rowid, old.content); END;",
+    # MTM
+    "CREATE TRIGGER IF NOT EXISTS mtm_fts_insert AFTER INSERT ON midterm_memory BEGIN INSERT INTO mtm_fts(rowid, content) VALUES (new.rowid, new.content); END;",
+    "CREATE TRIGGER IF NOT EXISTS mtm_fts_delete AFTER DELETE ON midterm_memory BEGIN INSERT INTO mtm_fts(mtm_fts, rowid, content) VALUES('delete', old.rowid, old.content); END;",
+    # LTM
+    "CREATE TRIGGER IF NOT EXISTS ltm_fts_insert AFTER INSERT ON long_term_memory BEGIN INSERT INTO ltm_fts(rowid, content) VALUES (new.rowid, new.content); END;",
+    "CREATE TRIGGER IF NOT EXISTS ltm_fts_delete AFTER DELETE ON long_term_memory BEGIN INSERT INTO ltm_fts(ltm_fts, rowid, content) VALUES('delete', old.rowid, old.content); END;",
+]
+
 ALL_TABLES = [
     CREATE_AGENTS,            # agents first (referenced by agent_id columns)
     CREATE_SESSIONS,          # sessions before short_term_memory

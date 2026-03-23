@@ -46,3 +46,8 @@ package-lock.json
 
 # Embedding model cache
 models/
+
+# Internal Documentation
+docs/AgentDB_PRD_v1.3.md
+docs/AgentDB_PRD_v1.4.md
+docs/AgentDB_PRD.docx

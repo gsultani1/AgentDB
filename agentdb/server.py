@@ -34,17 +34,36 @@ from agentdb.middleware import (
 from agentdb.markdown_parser import (
     process_markdown_document,
     reverse_generate_markdown,
+    MarkdownFileWatcher,
 )
 
 
 _db_path = None
 _start_time = None
 _static_dir = Path(__file__).parent / "static"
+_allowed_origins = {"http://127.0.0.1", "http://localhost", "tauri://localhost"}
+_last_import_result = None
+_file_watcher = None
 
 
 def _get_conn():
     """Get a fresh database connection for the current request."""
     return get_connection(_db_path)
+
+
+def _check_agent_api_key(handler):
+    """Validate the agent API key from the X-API-Key header. Returns True if authorized."""
+    conn = _get_conn()
+    try:
+        configured_key = conn.execute(
+            "SELECT value FROM meta_config WHERE key = 'agent_api_key'"
+        ).fetchone()
+        if configured_key is None or not configured_key[0]:
+            return True
+        provided_key = handler.headers.get("X-API-Key", "")
+        return provided_key == configured_key[0]
+    finally:
+        conn.close()
 
 
 def _json_response(handler, status_code, data=None, error=None):
@@ -58,7 +77,11 @@ def _json_response(handler, status_code, data=None, error=None):
     handler.send_response(status_code)
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Content-Length", str(len(payload)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
+    origin = handler.headers.get("Origin", "")
+    if any(origin.startswith(o) for o in _allowed_origins) or not origin:
+        handler.send_header("Access-Control-Allow-Origin", origin or "http://127.0.0.1")
+    else:
+        handler.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
     handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
     handler.end_headers()
@@ -107,11 +130,22 @@ class AgentDBHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         """Handle CORS preflight."""
+        origin = self.headers.get("Origin", "")
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if any(origin.startswith(o) for o in _allowed_origins) or not origin:
+            self.send_header("Access-Control-Allow-Origin", origin or "http://127.0.0.1")
+        else:
+            self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
         self.end_headers()
+
+    def _require_agent_auth(self):
+        """Check API key for agent endpoints. Returns False and sends 401 if unauthorized."""
+        if not _check_agent_api_key(self):
+            _json_response(self, 401, error="Invalid or missing API key. Set X-API-Key header.")
+            return False
+        return True
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -195,6 +229,11 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_get(self, path, qp):
+        # Enforce API key on agent routes (health is exempt for monitoring)
+        if path.startswith("/api/agent/") and path != "/api/agent/health":
+            if not self._require_agent_auth():
+                return
+
         conn = _get_conn()
         try:
             # ── Agent API ──
@@ -227,6 +266,8 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if path == "/api/notifications":
                 return self._op_notifications_list(conn, qp)
             if path == "/api/import/status":
+                if _last_import_result:
+                    return _json_response(self, 200, data=_last_import_result)
                 return _json_response(self, 200, data={"status": "idle"})
             if path == "/api/markdown/watcher/status":
                 return self._op_watcher_status(conn)
@@ -269,6 +310,11 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_post(self, path, body):
+        # Enforce API key on agent routes
+        if path.startswith("/api/agent/"):
+            if not self._require_agent_auth():
+                return
+
         conn = _get_conn()
         try:
             # ── Agent API ──
@@ -316,19 +362,42 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 crud.dismiss_read_notifications(conn)
                 return _json_response(self, 200, data={"message": "Read notifications dismissed"})
             if path == "/api/maintenance/consolidate":
-                return _json_response(self, 200, data={"message": "Consolidation triggered"})
+                from agentdb.consolidation import run_consolidation_cycle
+                result = run_consolidation_cycle(conn)
+                return _json_response(self, 200, data=result)
             if path == "/api/maintenance/sleep-cycle":
-                return _json_response(self, 200, data={"message": "Sleep-time cycle triggered"})
+                from agentdb.consolidation import run_consolidation_cycle
+                result = run_consolidation_cycle(conn)
+                result["message"] = "Sleep-time cycle completed"
+                return _json_response(self, 200, data=result)
             if path == "/api/maintenance/integrity-check":
-                return _json_response(self, 200, data={"message": "Integrity check triggered"})
+                result = _run_integrity_check(conn)
+                return _json_response(self, 200, data=result)
             if path == "/api/workspaces/scan":
-                return _json_response(self, 200, data={"message": "Workspace scan triggered"})
+                workspaces = crud.list_workspaces(conn)
+                scanned = 0
+                for ws in workspaces:
+                    root = ws.get("root_path") or ws.get("path", "")
+                    if root and os.path.isdir(root):
+                        for dirpath, dirs, files in os.walk(root):
+                            scanned += len(files)
+                return _json_response(self, 200, data={"workspaces_checked": len(workspaces), "files_found": scanned})
             if path == "/api/markdown/submit":
                 return self._op_markdown_submit(conn, body)
             if path == "/api/markdown/batch":
                 return self._op_markdown_batch(conn, body)
             if path == "/api/import":
-                return _json_response(self, 200, data={"message": "Import pipeline started"})
+                global _last_import_result
+                file_path = body.get("file_path", "")
+                provider = body.get("provider", "chatgpt")
+                if not file_path:
+                    return _json_response(self, 400, error="file_path is required")
+                if not os.path.isfile(file_path):
+                    return _json_response(self, 400, error=f"File not found: {file_path}")
+                from agentdb.migration import run_migration_pipeline
+                result = run_migration_pipeline(conn, file_path, provider)
+                _last_import_result = {**result, "status": "completed"}
+                return _json_response(self, 200, data=_last_import_result)
 
             m = _match("/api/contradictions/{id}/resolve", path)
             if m:
@@ -411,7 +480,8 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         if not query:
             return _json_response(self, 400, error="'query' is required")
         filters = body.get("filters", {})
-        payload = retrieve_context(conn, query, filters=filters)
+        agent_id = body.get("agent_id")
+        payload = retrieve_context(conn, query, filters=filters, agent_id=agent_id)
         _json_response(self, 200, data=payload)
 
     def _agent_ingest(self, conn, body):
@@ -420,9 +490,11 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             return _json_response(self, 400, error="'content' is required")
         source = body.get("source", "conversation")
         session_id = body.get("session_id")
+        agent_id = body.get("agent_id", "default")
         embedding = embedding_to_blob(generate_embedding(content))
         mid = crud.create_short_term_memory(
             conn, content, source, embedding=embedding, session_id=session_id,
+            agent_id=agent_id,
         )
         _json_response(self, 201, data={"id": mid})
 
@@ -430,6 +502,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         observations = body.get("observations", [])
         if not observations:
             return _json_response(self, 400, error="'observations' array is required")
+        batch_agent_id = body.get("agent_id", "default")
         ids = []
         for obs in observations:
             content = obs.get("content", "")
@@ -437,9 +510,11 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 continue
             source = obs.get("source", "conversation")
             session_id = obs.get("session_id")
+            agent_id = obs.get("agent_id", batch_agent_id)
             embedding = embedding_to_blob(generate_embedding(content))
             mid = crud.create_short_term_memory(
                 conn, content, source, embedding=embedding, session_id=session_id,
+                agent_id=agent_id,
             )
             ids.append(mid)
         _json_response(self, 201, data={"ids": ids})
@@ -484,16 +559,33 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         impls = crud.list_skill_implementations(conn, skill_id, active_only=True)
         if not impls:
             return _json_response(self, 404, error="No active implementation")
-        # Log the execution attempt; actual execution is implementation-dependent
+        impl = dict(impls[0])
         crud.update_skill(conn, skill_id,
                           use_count=skill["use_count"] + 1,
                           last_used=datetime.utcnow().isoformat())
-        _json_response(self, 200, data={
-            "skill_id": skill_id,
-            "implementation": dict(impls[0]),
-            "inputs": inputs,
-            "message": "Skill execution logged. Actual execution depends on execution_type.",
-        })
+
+        # Execute prompt_template skills by substituting inputs into the template
+        if impl.get("language") == "prompt_template":
+            template = impl.get("code", "")
+            rendered = template
+            for key, value in inputs.items():
+                rendered = rendered.replace("{{" + key + "}}", str(value))
+                rendered = rendered.replace("{" + key + "}", str(value))
+            _json_response(self, 200, data={
+                "skill_id": skill_id,
+                "execution_type": "prompt_template",
+                "rendered": rendered,
+                "inputs": inputs,
+            })
+        else:
+            # code_procedure, tool_invocation, composite — return implementation for caller to run
+            _json_response(self, 200, data={
+                "skill_id": skill_id,
+                "execution_type": impl.get("language"),
+                "implementation": impl,
+                "inputs": inputs,
+                "message": f"Return implementation to caller for {impl.get('language')} execution.",
+            })
 
     def _agent_goals_check(self, conn, body):
         context = body.get("context", "")
@@ -541,7 +633,8 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         if not session_id:
             return _json_response(self, 400, error="'session_id' is required")
         history = body.get("history", [])
-        result = execute_chat_pipeline(conn, message, session_id, messages_history=history)
+        agent_id = body.get("agent_id")
+        result = execute_chat_pipeline(conn, message, session_id, messages_history=history, agent_id=agent_id)
         _json_response(self, 200, data=result)
 
     # ══════════════════════════════════════════════════════════════
@@ -846,10 +939,14 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     def _op_watcher_status(self, conn):
         enabled = crud.get_config_value(conn, "markdown_watch_enabled", "false")
         inbox = crud.get_config_value(conn, "markdown_inbox_path", "")
+        pending = 0
+        if inbox and os.path.isdir(inbox):
+            pending = len([f for f in os.listdir(inbox) if f.endswith('.md')])
         _json_response(self, 200, data={
             "enabled": enabled == "true",
             "inbox_path": inbox,
-            "files_pending": 0,
+            "files_pending": pending,
+            "watcher_running": _file_watcher is not None,
         })
 
     def _op_markdown_submit(self, conn, body):
@@ -948,6 +1045,55 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         _json_response(self, 200, data=notifications)
 
 
+def _run_integrity_check(conn):
+    """Scan polymorphic reference columns for orphaned IDs."""
+    from agentdb.schema import CONTENT_TABLES
+    orphans_found = 0
+    orphans_detail = []
+
+    for poly_table in ("relations", "tag_assignments", "feedback"):
+        if poly_table == "relations":
+            id_cols = [("source_id", "source_table"), ("target_id", "target_table")]
+        elif poly_table == "tag_assignments":
+            id_cols = [("target_id", "target_table")]
+        else:
+            id_cols = [("target_id", "target_table")]
+
+        for id_col, table_col in id_cols:
+            rows = conn.execute(
+                f"SELECT id, {id_col}, {table_col} FROM {poly_table}"
+            ).fetchall()
+            for row in rows:
+                ref_id = row[id_col]
+                ref_table = row[table_col]
+                if ref_table not in CONTENT_TABLES:
+                    continue
+                exists = conn.execute(
+                    f"SELECT 1 FROM {ref_table} WHERE id = ?", (ref_id,)
+                ).fetchone()
+                if not exists:
+                    orphans_found += 1
+                    orphans_detail.append({
+                        "poly_table": poly_table,
+                        "poly_id": row["id"],
+                        "references": f"{ref_table}.{ref_id}",
+                    })
+                    orphan_mode = crud.get_config_value(conn, "orphan_handling_mode", "flag")
+                    if orphan_mode == "auto":
+                        conn.execute(f"DELETE FROM {poly_table} WHERE id = ?", (row["id"],))
+                    crud.create_audit_entry(
+                        conn, poly_table, row["id"], "delete" if orphan_mode == "auto" else "update",
+                        "manual",
+                        after_snapshot={"orphan_detected": True, "references": f"{ref_table}.{ref_id}"},
+                    )
+    conn.commit()
+    return {
+        "orphans_found": orphans_found,
+        "orphans": orphans_detail[:50],
+        "action": crud.get_config_value(conn, "orphan_handling_mode", "flag"),
+    }
+
+
 def run_server(db_path, host="127.0.0.1", port=8420):
     """
     Start the AgentDB HTTP server.
@@ -957,9 +1103,21 @@ def run_server(db_path, host="127.0.0.1", port=8420):
         host: Bind address (default localhost).
         port: Port number (default 8420).
     """
-    global _db_path, _start_time
+    global _db_path, _start_time, _file_watcher
     _db_path = db_path
     _start_time = time.time()
+
+    # Start markdown file watcher if enabled
+    try:
+        conn = get_connection(db_path)
+        watch_enabled = crud.get_config_value(conn, "markdown_watch_enabled", "false")
+        conn.close()
+        if watch_enabled == "true":
+            _file_watcher = MarkdownFileWatcher(db_path)
+            _file_watcher.start()
+            print("Markdown file watcher started")
+    except Exception as e:
+        print(f"Warning: Could not start file watcher: {e}")
 
     server = HTTPServer((host, port), AgentDBHandler)
     print(f"AgentDB server running at http://{host}:{port}")
@@ -970,4 +1128,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down AgentDB server...")
+        if _file_watcher:
+            _file_watcher.stop()
+            print("File watcher stopped")
         server.shutdown()

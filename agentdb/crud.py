@@ -61,10 +61,13 @@ def get_short_term_memory(conn, mid):
 
 
 def list_short_term_memories(conn, status=None, session_id=None,
-                             limit=100, offset=0):
-    """List short-term memories with optional filters."""
+                             agent_id=None, limit=100, offset=0):
+    """List short-term memories with optional filters. agent_id scopes to that agent + 'shared'."""
     query = "SELECT * FROM short_term_memory WHERE 1=1"
     params = []
+    if agent_id:
+        query += " AND (agent_id = ? OR agent_id = 'shared')"
+        params.append(agent_id)
     if status:
         query += " AND status = ?"
         params.append(status)
@@ -129,10 +132,13 @@ def get_midterm_memory(conn, mid):
 
 
 def list_midterm_memories(conn, category=None, min_confidence=None,
-                          limit=100, offset=0):
-    """List midterm memories with optional filters."""
+                          agent_id=None, limit=100, offset=0):
+    """List midterm memories with optional filters. agent_id scopes to that agent + 'shared'."""
     query = "SELECT * FROM midterm_memory WHERE 1=1"
     params = []
+    if agent_id:
+        query += " AND (agent_id = ? OR agent_id = 'shared')"
+        params.append(agent_id)
     if category:
         query += " AND category = ?"
         params.append(category)
@@ -204,10 +210,13 @@ def get_long_term_memory(conn, mid):
 
 
 def list_long_term_memories(conn, category=None, min_confidence=None,
-                            limit=100, offset=0):
-    """List long-term memories with optional filters."""
+                            agent_id=None, limit=100, offset=0):
+    """List long-term memories with optional filters. agent_id scopes to that agent + 'shared'."""
     query = "SELECT * FROM long_term_memory WHERE 1=1"
     params = []
+    if agent_id:
+        query += " AND (agent_id = ? OR agent_id = 'shared')"
+        params.append(agent_id)
     if category:
         query += " AND category = ?"
         params.append(category)

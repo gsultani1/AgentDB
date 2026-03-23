@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from agentdb.schema import ALL_TABLES, ALL_TRIGGERS, CREATE_INDEXES, CREATE_FTS_TABLES
+from agentdb.schema import ALL_TABLES, ALL_TRIGGERS, CREATE_INDEXES, CREATE_FTS_TABLES, FTS_SYNC_TRIGGERS
 
 
 DEFAULT_CONFIG = {
@@ -105,6 +105,13 @@ def initialize_database(db_path):
         except Exception:
             pass  # FTS5 may not be available on all SQLite builds
 
+    # Create FTS5 sync triggers for automatic index maintenance
+    for trigger in FTS_SYNC_TRIGGERS:
+        try:
+            cursor.execute(trigger)
+        except Exception:
+            pass  # FTS5 may not be available on all SQLite builds
+
     # Seed default configuration
     _seed_default_config(cursor)
 
@@ -163,3 +170,11 @@ def verify_schema(conn):
     existing = {row[0] for row in cursor.fetchall()}
     missing = [t for t in expected_tables if t not in existing]
     return {"ok": len(missing) == 0, "missing": missing}
+
+
+def backfill_fts_tables(conn):
+    """Populate FTS5 tables from existing memory data."""
+    for table, fts in [("short_term_memory", "stm_fts"), ("midterm_memory", "mtm_fts"), ("long_term_memory", "ltm_fts")]:
+        conn.execute(f"DELETE FROM {fts}")
+        conn.execute(f"INSERT INTO {fts}(rowid, content) SELECT rowid, content FROM {table}")
+    conn.commit()
