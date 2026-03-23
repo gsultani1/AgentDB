@@ -1479,3 +1479,46 @@ def count_unread_notifications(conn, agent_id=None):
         query += " AND agent_id = ?"
         params.append(agent_id)
     return conn.execute(query, params).fetchone()[0]
+
+
+# ── LLM Providers ──
+
+def list_llm_providers(conn, limit=50):
+    rows = conn.execute("SELECT * FROM llm_providers ORDER BY is_default DESC, name ASC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+def get_llm_provider(conn, provider_id):
+    row = conn.execute("SELECT * FROM llm_providers WHERE id = ?", (provider_id,)).fetchone()
+    return dict(row) if row else None
+
+def get_default_llm_provider(conn):
+    row = conn.execute("SELECT * FROM llm_providers WHERE is_default = 1 LIMIT 1").fetchone()
+    return dict(row) if row else None
+
+def create_llm_provider(conn, name, provider_type, model, api_key='', endpoint='', is_default=False):
+    pid = str(uuid.uuid4())
+    if is_default:
+        conn.execute("UPDATE llm_providers SET is_default = 0")
+    conn.execute(
+        "INSERT INTO llm_providers (id, name, provider_type, api_key, model, endpoint, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (pid, name, provider_type, api_key, model, endpoint, 1 if is_default else 0))
+    conn.commit()
+    return pid
+
+def update_llm_provider(conn, provider_id, **kwargs):
+    if kwargs.get('is_default'):
+        conn.execute("UPDATE llm_providers SET is_default = 0")
+    sets, vals = [], []
+    for k, v in kwargs.items():
+        if v is not None:
+            sets.append(f"{k} = ?")
+            vals.append(1 if k == 'is_default' and v else (0 if k == 'is_default' else v))
+    if not sets:
+        return
+    vals.append(provider_id)
+    conn.execute(f"UPDATE llm_providers SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+
+def delete_llm_provider(conn, provider_id):
+    conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
+    conn.commit()

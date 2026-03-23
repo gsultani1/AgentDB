@@ -362,6 +362,19 @@ CREATE TABLE IF NOT EXISTS embeddings_cache (
 );
 """
 
+CREATE_LLM_PROVIDERS = """
+CREATE TABLE IF NOT EXISTS llm_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider_type TEXT NOT NULL DEFAULT 'claude',
+    api_key TEXT DEFAULT '',
+    model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+    endpoint TEXT DEFAULT '',
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+"""
+
 # ── Indexes ──
 
 CREATE_INDEXES = [
@@ -414,6 +427,7 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON scheduled_tasks(next_run_at);",
     "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON scheduled_tasks(agent_id);",
     "CREATE INDEX IF NOT EXISTS idx_agents_last_active ON agents(last_active);",
+    "CREATE INDEX IF NOT EXISTS idx_llm_providers_default ON llm_providers(is_default);",
 ]
 
 # ── All content tables that participate in polymorphic relations ──
@@ -617,6 +631,7 @@ ALL_TABLES = [
     CREATE_SCHEDULED_TASKS,
     CREATE_VIEWS,
     CREATE_EMBEDDINGS_CACHE,
+    CREATE_LLM_PROVIDERS,
 ]
 
 ALL_TRIGGERS = [

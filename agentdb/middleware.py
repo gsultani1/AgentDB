@@ -377,7 +377,8 @@ def get_identity_memories(conn, agent_id=None):
     return result
 
 
-def execute_chat_pipeline(conn, user_message, session_id, messages_history=None, agent_id=None):
+def execute_chat_pipeline(conn, user_message, session_id, messages_history=None, agent_id=None,
+                          provider_override=None, model_override=None):
     """
     Full chat pipeline: retrieve context, call LLM, ingest exchange, return observability payload.
 
@@ -387,6 +388,8 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None,
         session_id: str, active session ID.
         messages_history: list of previous {"role", "content"} dicts (optional).
         agent_id: str, scope retrieval and ingestion to this agent (optional).
+        provider_override: str, override the configured LLM provider (optional).
+        model_override: str, override the configured model name (optional).
 
     Returns:
         dict with keys: response, context_payload, snapshot_id, ingested_ids
@@ -396,7 +399,19 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None,
 
     # Load provider config
     llm_config = get_llm_config(conn)
-    provider_name = llm_config.get("llm_provider", "claude")
+    provider_name = provider_override or llm_config.get("llm_provider", "claude")
+    # If provider_override is a provider ID, load from llm_providers table
+    if provider_override and len(provider_override) > 20 and '-' in provider_override:
+        prov = conn.execute("SELECT * FROM llm_providers WHERE id = ?", (provider_override,)).fetchone()
+        if prov:
+            prov = dict(prov)
+            provider_name = prov['provider_type']
+            llm_config['llm_api_key'] = prov['api_key']
+            llm_config['llm_model'] = prov['model']
+            if prov.get('endpoint'):
+                llm_config['llm_endpoint'] = prov['endpoint']
+    if model_override:
+        llm_config["llm_model"] = model_override
     adapter = get_adapter(provider_name)
 
     # Retrieve context

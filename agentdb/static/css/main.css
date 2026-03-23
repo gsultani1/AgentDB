@@ -6,42 +6,48 @@
 /* ----- Custom Properties (Light) ----- */
 :root {
   --bg: #ffffff;
-  --bg2: #f8f9fa;
-  --bg3: #f1f3f5;
-  --border: #dee2e6;
-  --text: #212529;
-  --text2: #868e96;
-  --accent: #0d9488;
-  --accent2: #0f766e;
-  --accentLight: #ccfbf1;
-  --green: #059669;
-  --red: #dc2626;
-  --yellow: #d97706;
-  --blue: #2563eb;
-  --shadow: rgba(0, 0, 0, 0.1);
+  --bg2: #f8fafc;
+  --bg3: #f1f5f9;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --text2: #64748b;
+  --accent: #3b82f6;
+  --accent2: #2563eb;
+  --accentLight: #eff6ff;
+  --green: #22c55e;
+  --red: #ef4444;
+  --yellow: #f59e0b;
+  --blue: #3b82f6;
+  --stm: #3b82f6;
+  --mtm: #f59e0b;
+  --ltm: #22c55e;
+  --shadow: rgba(0, 0, 0, 0.08);
   --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  --sidebar-w: 220px;
+  --sidebar-w: 240px;
   --sidebar-collapsed-w: 56px;
-  --radius: 6px;
+  --radius: 8px;
   --transition: 0.2s ease;
 }
 
 /* ----- Dark Theme ----- */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1117;
-    --bg2: #161922;
-    --bg3: #1e2230;
-    --border: #2a2f3e;
-    --text: #e1e4eb;
-    --text2: #7a8299;
-    --accentLight: rgba(13, 148, 136, 0.12);
-    --green: #34d399;
+    --bg: #0f172a;
+    --bg2: #1e293b;
+    --bg3: #334155;
+    --border: #475569;
+    --text: #f1f5f9;
+    --text2: #94a3b8;
+    --accentLight: rgba(59, 130, 246, 0.12);
+    --green: #4ade80;
     --red: #f87171;
     --yellow: #fbbf24;
     --blue: #60a5fa;
-    --shadow: rgba(0, 0, 0, 0.4);
+    --stm: #60a5fa;
+    --mtm: #fbbf24;
+    --ltm: #4ade80;
+    --shadow: rgba(0, 0, 0, 0.3);
   }
 }
 
@@ -110,7 +116,8 @@ nav, #sidebar {
   flex-direction: column;
   flex-shrink: 0;
   transition: width var(--transition), min-width var(--transition);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   z-index: 100;
 }
 
@@ -125,14 +132,26 @@ nav .logo {
   letter-spacing: 1px;
 }
 
+nav .nav-section {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 16px 16px 4px;
+  opacity: 0.6;
+  user-select: none;
+}
+body.sidebar-collapsed nav .nav-section { display: none; }
+
 nav a {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+  padding: 8px 16px;
   border-left: 3px solid transparent;
   color: var(--text2);
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   white-space: nowrap;
   transition: background var(--transition), color var(--transition);
   text-decoration: none;

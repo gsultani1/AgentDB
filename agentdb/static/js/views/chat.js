@@ -32,10 +32,8 @@
 
       /* ---- Controls bar ---- */
       html += '<div class="flex items-center gap-8 mb-16" style="flex-wrap:wrap">';
-      html += '  <select id="chat-provider" class="btn" style="min-width:140px">';
-      html += '    <option value="claude">Claude</option>';
-      html += '    <option value="openai">OpenAI</option>';
-      html += '    <option value="local">Local</option>';
+      html += '  <select id="chat-provider" class="btn" style="min-width:180px">';
+      html += '    <option value="">Default Provider</option>';
       html += '  </select>';
       html += '  <button class="btn btn-primary" id="chat-new-session">New Session</button>';
       html += '  <span class="text-muted text-sm" id="chat-session-label">';
@@ -73,6 +71,25 @@
       html += '</div>'; /* end chat-layout */
 
       container.innerHTML = html;
+
+      /* ---- Populate provider dropdown from API ---- */
+      AgentDB.api('GET', '/api/providers').then(function(r) {
+        var sel = document.getElementById('chat-provider');
+        if (r.status === 'ok' && r.data && r.data.length) {
+          r.data.forEach(function(p) {
+            var opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name + ' (' + p.model + ')' + (p.is_default ? ' *' : '');
+            if (p.is_default) opt.selected = true;
+            sel.appendChild(opt);
+          });
+        } else {
+          // Fallback: add hardcoded options if no providers configured
+          ['claude', 'openai', 'local'].forEach(function(v) {
+            sel.innerHTML += '<option value="' + v + '">' + v + '</option>';
+          });
+        }
+      });
 
       /* ---- Wire events (once) ---- */
       document.getElementById('chat-new-session').addEventListener('click', function () {

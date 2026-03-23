@@ -3,13 +3,6 @@
   const el = () => document.getElementById('view-settings');
 
   const SETTINGS_SCHEMA = {
-    "LLM Provider": [
-      { key: 'llm_provider', label: 'Provider', type: 'select', options: ['claude','openai','local'], hint: 'LLM backend to use for consolidation and chat' },
-      { key: 'llm_api_key', label: 'API Key', type: 'password', hint: 'API key for the selected LLM provider' },
-      { key: 'llm_model', label: 'Model', type: 'text', hint: 'Model name (e.g. claude-sonnet-4-20250514, gpt-4o)' },
-      { key: 'llm_endpoint', label: 'Endpoint URL', type: 'text', fullWidth: true, hint: 'Custom API endpoint (leave blank for default)' },
-      { key: 'max_context_tokens', label: 'Max Context Tokens', type: 'number', min: 500, max: 128000, hint: 'Maximum tokens for context window' },
-    ],
     "Agent API": [
       { key: 'agent_api_key', label: 'Agent API Key', type: 'password', fullWidth: true, hint: 'API key clients must send to authenticate with AgentDB' },
     ],
@@ -66,6 +59,31 @@
 
     var html = '<h2 style="margin-bottom:16px">Settings</h2>';
 
+    // AI Providers section (dynamic from llm_providers table)
+    html += '<div class="card" style="margin-bottom:16px"><h3>AI Providers</h3>';
+    html += '<p style="font-size:12px;color:var(--text2);margin-bottom:12px">Configure multiple AI providers. The default provider is used for chat and consolidation.</p>';
+    html += '<div id="providers-list"></div>';
+    html += '<button class="btn" style="margin-top:12px" id="add-provider-btn">+ Add Provider</button>';
+    html += '<div id="add-provider-form" style="display:none;margin-top:12px;padding:16px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+    html += '<div><label style="font-size:12px;color:var(--text2)">Name</label><input type="text" id="prov-name" placeholder="My Claude" style="width:100%"></div>';
+    html += '<div><label style="font-size:12px;color:var(--text2)">Type</label><select id="prov-type" style="width:100%"><option value="claude">Claude</option><option value="openai">OpenAI</option><option value="local">Local</option></select></div>';
+    html += '<div><label style="font-size:12px;color:var(--text2)">Model</label><input type="text" id="prov-model" placeholder="claude-sonnet-4-20250514" style="width:100%"></div>';
+    html += '<div><label style="font-size:12px;color:var(--text2)">API Key</label><input type="password" id="prov-key" placeholder="sk-..." style="width:100%"></div>';
+    html += '<div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text2)">Endpoint (optional)</label><input type="text" id="prov-endpoint" placeholder="Leave blank for default" style="width:100%"></div>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-primary" id="save-provider-btn">Save Provider</button><button class="btn" id="cancel-provider-btn">Cancel</button></div>';
+    html += '</div></div>';
+
+    // Max context tokens (kept from old LLM section)
+    html += '<div class="card" style="margin-bottom:16px"><h3>Context Settings</h3>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-top:12px">';
+    var mctVal = configMap['max_context_tokens'] || '4000';
+    html += '<div><label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Max Context Tokens</label>';
+    html += '<input type="number" id="cfg-max_context_tokens" value="' + AgentDB.esc(mctVal) + '" min="500" max="128000" style="width:100%" onchange="AgentDB.views.settings.saveConfig(\'max_context_tokens\')">';
+    html += '<div style="font-size:11px;color:var(--text2);margin-top:2px">Maximum tokens for context window</div></div>';
+    html += '</div></div>';
+
     Object.keys(SETTINGS_SCHEMA).forEach(function(section) {
       html += '<div class="card" style="margin-bottom:16px"><h3>' + AgentDB.esc(section) + '</h3>';
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-top:12px">';
@@ -117,6 +135,85 @@
     html += '</div></div>';
 
     el().innerHTML = html;
+
+    // Wire provider buttons
+    document.getElementById('add-provider-btn').onclick = function() {
+      document.getElementById('add-provider-form').style.display = 'block';
+    };
+    document.getElementById('cancel-provider-btn').onclick = function() {
+      document.getElementById('add-provider-form').style.display = 'none';
+    };
+    document.getElementById('save-provider-btn').onclick = V.createProvider;
+    document.getElementById('providers-list').addEventListener('click', function(e) {
+      var btn;
+      if ((btn = e.target.closest('[data-set-default]'))) {
+        V.setDefault(btn.dataset.setDefault);
+      } else if ((btn = e.target.closest('[data-del-provider]'))) {
+        V.deleteProvider(btn.dataset.delProvider);
+      }
+    });
+
+    // Load providers
+    V.loadProviders();
+  };
+
+  V.loadProviders = async function() {
+    var r = await AgentDB.api('GET', '/api/providers');
+    var wrap = document.getElementById('providers-list');
+    if (!wrap) return;
+    if (r.status !== 'ok' || !r.data || !r.data.length) {
+      wrap.innerHTML = '<p style="color:var(--text2);font-size:13px">No providers configured. Add one to get started.</p>';
+      return;
+    }
+    wrap.innerHTML = '<table style="width:100%"><thead><tr><th>Name</th><th>Type</th><th>Model</th><th>API Key</th><th>Default</th><th></th></tr></thead><tbody>' +
+      r.data.map(function(p) {
+        return '<tr>' +
+          '<td><b>' + AgentDB.esc(p.name) + '</b></td>' +
+          '<td>' + AgentDB.esc(p.provider_type) + '</td>' +
+          '<td style="font-family:var(--mono);font-size:12px">' + AgentDB.esc(p.model) + '</td>' +
+          '<td style="font-size:12px;color:var(--text2)">' + AgentDB.esc(p.api_key || '') + '</td>' +
+          '<td>' + (p.is_default ? '<span class="status ok">Default</span>' : '<button class="btn btn-sm" data-set-default="' + p.id + '">Set Default</button>') + '</td>' +
+          '<td><button class="btn btn-sm" style="color:var(--red)" data-del-provider="' + p.id + '">Delete</button></td>' +
+          '</tr>';
+      }).join('') + '</tbody></table>';
+  };
+
+  V.createProvider = async function() {
+    var name = document.getElementById('prov-name').value.trim();
+    var model = document.getElementById('prov-model').value.trim();
+    if (!name || !model) return AgentDB.toast('Name and model are required', 'error');
+    var r = await AgentDB.api('POST', '/api/providers', {
+      name: name,
+      provider_type: document.getElementById('prov-type').value,
+      model: model,
+      api_key: document.getElementById('prov-key').value,
+      endpoint: document.getElementById('prov-endpoint').value,
+      is_default: false
+    });
+    if (r.status === 'ok' || r.data?.id) {
+      AgentDB.toast('Provider added', 'success');
+      document.getElementById('add-provider-form').style.display = 'none';
+      document.getElementById('prov-name').value = '';
+      document.getElementById('prov-model').value = '';
+      document.getElementById('prov-key').value = '';
+      document.getElementById('prov-endpoint').value = '';
+      V.loadProviders();
+    } else {
+      AgentDB.toast('Error: ' + (r.error || 'Unknown'), 'error');
+    }
+  };
+
+  V.setDefault = async function(id) {
+    await AgentDB.api('PUT', '/api/providers/' + id, { is_default: true });
+    AgentDB.toast('Default provider updated', 'success');
+    V.loadProviders();
+  };
+
+  V.deleteProvider = async function(id) {
+    if (!await AgentDB.confirm('Delete this provider?')) return;
+    await AgentDB.api('DELETE', '/api/providers/' + id);
+    AgentDB.toast('Provider deleted');
+    V.loadProviders();
   };
 
   V.saveConfig = async function(key) {

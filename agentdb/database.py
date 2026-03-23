@@ -87,6 +87,7 @@ DEFAULT_CONFIG = {
     "mcp_enabled": "false",
     "mcp_transport": "stdio",
     "mcp_port": "8421",
+    "db_console_write_enabled": "false",
 }
 
 

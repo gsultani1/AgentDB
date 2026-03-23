@@ -300,6 +300,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 crud.delete_scheduled_task(conn, m["id"])
                 return _json_response(self, 200, data={"deleted": m["id"]})
+            m = _match("/api/providers/{id}", path)
+            if m:
+                crud.delete_llm_provider(conn, m["id"])
+                return _json_response(self, 200, data={"deleted": m["id"]})
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
             conn.close()
@@ -354,6 +358,12 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return self._op_scheduled_tasks_list(conn, qp)
             if path == "/api/scheduler/status":
                 return self._op_scheduler_status(conn)
+            if path == "/api/providers":
+                providers = crud.list_llm_providers(conn)
+                for p in providers:
+                    if p.get('api_key'):
+                        p['api_key'] = '****' + p['api_key'][-4:] if len(p['api_key']) > 4 else '****'
+                return _json_response(self, 200, data=providers)
             if path == "/api/mcp/status":
                 return _json_response(self, 200, data={
                     "enabled": crud.get_config_value(conn, "mcp_enabled", "false") == "true",
@@ -527,6 +537,70 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 _last_import_result = {**result, "status": "completed"}
                 return _json_response(self, 200, data=_last_import_result)
 
+            # DB Console endpoints
+            if path == "/api/providers":
+                name = body.get("name", "").strip()
+                ptype = body.get("provider_type", "claude")
+                model = body.get("model", "")
+                api_key = body.get("api_key", "")
+                endpoint = body.get("endpoint", "")
+                is_default = body.get("is_default", False)
+                if not name or not model:
+                    return _json_response(self, 400, error="name and model are required")
+                pid = crud.create_llm_provider(conn, name, ptype, model, api_key, endpoint, is_default)
+                return _json_response(self, 201, data={"id": pid})
+            if path == "/api/db/query":
+                sql = body.get("sql", "").strip()
+                if not sql:
+                    return _json_response(self, 400, error="'sql' is required")
+                sql_upper = sql.upper().lstrip()
+                write_enabled = crud.get_config_value(conn, "db_console_write_enabled", "false") == "true"
+                if not write_enabled and not sql_upper.startswith("SELECT") and not sql_upper.startswith("PRAGMA") and not sql_upper.startswith("EXPLAIN"):
+                    return _json_response(self, 403, error="Write queries disabled. Enable db_console_write_enabled in settings.")
+                try:
+                    cursor = conn.execute(sql)
+                    if cursor.description:
+                        columns = [d[0] for d in cursor.description]
+                        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    else:
+                        rows, columns = [], []
+                        conn.commit()
+                    return _json_response(self, 200, data={"columns": columns, "rows": rows, "row_count": len(rows)})
+                except Exception as e:
+                    return _json_response(self, 400, error=str(e))
+
+            if path == "/api/db/ai-query":
+                question = body.get("question", "").strip()
+                if not question:
+                    return _json_response(self, 400, error="'question' is required")
+                tables = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL").fetchall()
+                schema_text = "\n".join([t[0] for t in tables])
+                system_prompt = (
+                    "You are a SQLite query generator for AgentDB. Given the schema below, "
+                    "generate ONLY a SQL SELECT query to answer the user's question. "
+                    "Return ONLY the SQL query, no explanation, no markdown fences.\n\nSchema:\n" + schema_text
+                )
+                from agentdb.middleware import get_llm_config, get_adapter
+                llm_config = get_llm_config(conn)
+                prov = body.get("provider") or llm_config.get("llm_provider", "claude")
+                adapter = get_adapter(prov)
+                generated_sql = ""
+                try:
+                    messages = [{"role": "user", "content": question}]
+                    generated_sql = adapter.call_provider(messages, system_prompt, llm_config).strip()
+                    if generated_sql.startswith("```"):
+                        lines = generated_sql.split("\n")
+                        generated_sql = "\n".join(l for l in lines if not l.startswith("```")).strip()
+                    cursor = conn.execute(generated_sql)
+                    if cursor.description:
+                        columns = [d[0] for d in cursor.description]
+                        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    else:
+                        rows, columns = [], []
+                    return _json_response(self, 200, data={"sql": generated_sql, "columns": columns, "rows": rows, "row_count": len(rows)})
+                except Exception as e:
+                    return _json_response(self, 400, error=str(e), data={"sql": generated_sql})
+
             m = _match("/api/agents/{id}/rotate-key", path)
             if m:
                 return self._op_agent_rotate_key(conn, m["id"])
@@ -597,6 +671,14 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             m = _match("/api/scheduled-tasks/{id}", path)
             if m:
                 return self._op_scheduled_task_update(conn, m["id"], body)
+            m = _match("/api/providers/{id}", path)
+            if m:
+                updates = {}
+                for key in ('name', 'provider_type', 'model', 'api_key', 'endpoint', 'is_default'):
+                    if key in body:
+                        updates[key] = body[key]
+                crud.update_llm_provider(conn, m["id"], **updates)
+                return _json_response(self, 200, data={"updated": m["id"]})
 
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
@@ -784,7 +866,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             return _json_response(self, 400, error="'session_id' is required")
         history = body.get("history", [])
         agent_id = getattr(self, "_derived_agent_id", None) or body.get("agent_id")
-        result = execute_chat_pipeline(conn, message, session_id, messages_history=history, agent_id=agent_id)
+        provider = body.get("provider")
+        model = body.get("model")
+        result = execute_chat_pipeline(conn, message, session_id, messages_history=history,
+                                       agent_id=agent_id, provider_override=provider, model_override=model)
         _json_response(self, 200, data=result)
 
     # ══════════════════════════════════════════════════════════════
@@ -1338,6 +1423,8 @@ def run_server(db_path, host="127.0.0.1", port=8420):
 
     conn = get_connection(db_path)
     ensure_scheduler_schema(conn)
+    conn.execute("CREATE TABLE IF NOT EXISTS llm_providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, provider_type TEXT NOT NULL DEFAULT 'claude', api_key TEXT DEFAULT '', model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514', endpoint TEXT DEFAULT '', is_default INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))")
+    conn.commit()
     conn.close()
 
     # Start markdown file watcher if enabled
