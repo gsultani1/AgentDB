@@ -1,0 +1,25 @@
+[package]
+name = "agentdb"
+version = "0.1.0"
+description = "AgentDB - Sovereign Agent Memory System"
+authors = ["George Sultani <george@sultani.com>"]
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "blocking", "native-tls"], default-features = false }
+tokio = { version = "1", features = ["full"] }
+dirs = "6"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

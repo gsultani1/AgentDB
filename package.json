@@ -1,0 +1,17 @@
+{
+  "name": "agentdb",
+  "version": "1.0.0",
+  "description": "A sovereign, local-first agent memory system with tiered knowledge, an empirical knowledge graph, MCP-native agent communication, multi-agent support, markdown authoring, and external chat migration.",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:icon": "tauri icon"
+  },
+  "author": "George Sultani <george@sultani.com>",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1"
+  }
+}

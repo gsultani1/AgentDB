@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+
+# Database files
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+PRD_text.txt
+*.db-wal
+*.db-shm
+
+# Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+
+# Node
+node_modules/
+package-lock.json
+
+# Embedding model cache
+models/

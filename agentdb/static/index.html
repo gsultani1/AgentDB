@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentDB</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --bg2: #f8f9fa;
+  --bg3: #f1f3f5;
+  --border: #dee2e6;
+  --text: #212529;
+  --text2: #868e96;
+  --accent: #0d9488;
+  --accent2: #0f766e;
+  --accentLight: #ccfbf1;
+  --green: #059669;
+  --red: #dc2626;
+  --yellow: #d97706;
+  --blue: #2563eb;
+  --stm: #2563eb;
+  --mtm: #d97706;
+  --ltm: #059669;
+  --shadow: rgba(0,0,0,.1);
+  --radius: 6px;
+  --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1117;
+    --bg2: #161922;
+    --bg3: #1e2230;
+    --border: #2a2f3e;
+    --text: #e1e4eb;
+    --text2: #7a8299;
+    --accentLight: rgba(13,148,136,0.12);
+    --green: #34d399;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --blue: #60a5fa;
+    --stm: #60a5fa;
+    --mtm: #fbbf24;
+    --ltm: #34d399;
+    --shadow: rgba(0,0,0,.4);
+  }
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--font); background:var(--bg); color:var(--text); display:flex; height:100vh; overflow:hidden; }
+button { cursor:pointer; font-family:var(--font); }
+input, textarea, select { font-family:var(--font); background:var(--bg3); color:var(--text); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; outline:none; }
+input:focus, textarea:focus, select:focus { border-color:var(--accent); }
+select option { background:var(--bg3); color:var(--text); }
+
+/* Sidebar nav */
+nav { width:220px; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
+nav .logo { padding:20px 16px; font-size:18px; font-weight:700; color:var(--accent); border-bottom:1px solid var(--border); letter-spacing:1px; }
+nav a { display:flex; align-items:center; gap:10px; padding:12px 16px; color:var(--text2); text-decoration:none; font-size:14px; transition:all .15s; border-left:3px solid transparent; }
+nav a:hover { background:var(--bg3); color:var(--text); }
+nav a.active { color:var(--accent); border-left-color:var(--accent); background:var(--accentLight); }
+nav a .icon { width:18px; text-align:center; font-size:15px; }
+
+/* Main content */
+main { flex:1; overflow-y:auto; padding:24px; }
+.view { display:none; }
+.view.active { display:block; }
+
+/* Cards */
+.card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+.card h3 { font-size:14px; color:var(--text2); margin-bottom:12px; text-transform:uppercase; letter-spacing:.5px; }
+
+/* Stats grid */
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; margin-bottom:20px; }
+.stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; }
+.stat-card .value { font-size:28px; font-weight:700; color:var(--accent); }
+.stat-card .label { font-size:12px; color:var(--text2); margin-top:4px; }
+
+/* Tables */
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; padding:10px 12px; background:var(--bg3); color:var(--text2); font-weight:600; border-bottom:1px solid var(--border); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+td { padding:10px 12px; border-bottom:1px solid var(--border); }
+tr:hover td { background:var(--bg3); }
+
+/* Tier badges */
+.tier { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+.tier.short_term { background:color-mix(in srgb, var(--stm) 15%, transparent); color:var(--stm); }
+.tier.midterm { background:color-mix(in srgb, var(--mtm) 15%, transparent); color:var(--mtm); }
+.tier.long_term { background:color-mix(in srgb, var(--ltm) 15%, transparent); color:var(--ltm); }
+
+/* Buttons */
+.btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:var(--radius); border:1px solid var(--border); background:var(--bg3); color:var(--text); font-size:13px; transition:all .15s; }
+.btn:hover { border-color:var(--accent); background:var(--accentLight); }
+.btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent2); }
+.btn-sm { padding:4px 10px; font-size:12px; }
+.btn-danger { border-color:var(--red); color:var(--red); }
+.btn-danger:hover { background:color-mix(in srgb, var(--red) 15%, transparent); }
+
+/* Tabs */
+.tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.tab { padding:10px 20px; font-size:13px; color:var(--text2); cursor:pointer; border-bottom:2px solid transparent; transition:all .15s; background:none; border-top:none; border-left:none; border-right:none; }
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* Search bar */
+.search-bar { display:flex; gap:8px; margin-bottom:16px; }
+.search-bar input { flex:1; }
+
+/* Chat layout */
+.chat-layout { display:flex; gap:16px; height:calc(100vh - 72px); }
+.chat-thread { flex:1; display:flex; flex-direction:column; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+.chat-messages { flex:1; overflow-y:auto; padding:16px; }
+.chat-input-area { padding:12px; border-top:1px solid var(--border); display:flex; gap:8px; }
+.chat-input-area textarea { flex:1; resize:none; height:60px; }
+.chat-sidebar { width:360px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); overflow-y:auto; padding:16px; flex-shrink:0; }
+.chat-msg { margin-bottom:12px; padding:10px 14px; border-radius:var(--radius); max-width:85%; }
+.chat-msg.user { background:var(--accent); color:#fff; margin-left:auto; }
+.chat-msg.assistant { background:var(--bg3); }
+.chat-msg .role { font-size:11px; font-weight:600; margin-bottom:4px; opacity:.7; }
+
+/* Editor layout */
+.editor-layout { display:flex; gap:16px; height:calc(100vh - 120px); }
+.editor-pane { flex:1; display:flex; flex-direction:column; }
+.editor-pane textarea { flex:1; font-family:var(--mono); font-size:13px; resize:none; padding:16px; line-height:1.6; }
+.preview-pane { flex:1; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:16px; overflow-y:auto; line-height:1.7; }
+.preview-pane h1,.preview-pane h2,.preview-pane h3 { margin:16px 0 8px; color:var(--accent); }
+.preview-pane p { margin-bottom:8px; }
+.preview-pane code { background:var(--bg3); padding:2px 6px; border-radius:4px; font-family:var(--mono); font-size:12px; }
+.preview-pane pre { background:var(--bg3); padding:12px; border-radius:var(--radius); overflow-x:auto; margin:8px 0; }
+
+/* Status badges */
+.status { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+.status.ok, .status.active { background:color-mix(in srgb, var(--green) 15%, transparent); color:var(--green); }
+.status.error, .status.unresolved { background:color-mix(in srgb, var(--red) 15%, transparent); color:var(--red); }
+.status.closed, .status.resolved { background:color-mix(in srgb, var(--text2) 15%, transparent); color:var(--text2); }
+
+/* Details expand */
+.expandable { cursor:pointer; }
+.expand-content { display:none; padding:12px; background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); margin-top:8px; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+.expand-content.open { display:block; }
+
+/* Config table (legacy fallback) */
+.config-row { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--border); }
+.config-key { width:280px; font-family:var(--mono); font-size:13px; color:var(--accent); }
+.config-val { flex:1; }
+.config-val input { width:100%; }
+
+/* Settings sections */
+.settings-section { margin-bottom:16px; }
+.section-desc { font-size:13px; color:var(--text2); margin-bottom:16px; }
+.settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.setting-item { display:flex; flex-direction:column; gap:4px; }
+.setting-item.full-width { grid-column:1 / -1; }
+.setting-label { font-size:12px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.5px; }
+.setting-hint { font-size:11px; color:var(--text2); opacity:0.7; }
+.setting-toggle { position:relative; display:inline-block; width:40px; height:22px; }
+.setting-toggle input { opacity:0; width:0; height:0; position:absolute; }
+.setting-toggle .slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--bg3); border:1px solid var(--border); border-radius:11px; transition:0.2s; }
+.setting-toggle .slider:before { content:""; position:absolute; height:16px; width:16px; left:2px; bottom:2px; background:var(--text2); border-radius:50%; transition:0.2s; }
+.setting-toggle input:checked + .slider { background:var(--accent); border-color:var(--accent); }
+.setting-toggle input:checked + .slider:before { transform:translateX(18px); background:#fff; }
+
+/* Connect page */
+.endpoint-table { width:100%; border-collapse:collapse; font-size:13px; }
+.endpoint-table th { text-align:left; padding:8px 12px; background:var(--bg3); color:var(--text2); font-size:11px; text-transform:uppercase; }
+.endpoint-table td { padding:8px 12px; border-bottom:1px solid var(--border); }
+.method-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; font-family:var(--mono); }
+.method-badge.get { background:rgba(96,165,250,0.15); color:var(--blue); }
+.method-badge.post { background:rgba(52,211,153,0.15); color:var(--green); }
+.code-block { background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:16px; font-family:var(--mono); font-size:12px; line-height:1.6; overflow-x:auto; white-space:pre; color:var(--text); }
+.copy-url { display:inline-flex; align-items:center; gap:8px; background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:10px 16px; font-family:var(--mono); font-size:14px; color:var(--accent); }
+
+/* Mind map canvas */
+#mindmap-canvas { width:100%; height:calc(100vh - 160px); background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); }
+
+/* Progress bar */
+.progress-bar { width:100%; height:6px; background:var(--bg3); border-radius:3px; overflow:hidden; margin:8px 0; }
+.progress-fill { height:100%; background:var(--accent); transition:width .3s; border-radius:3px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width:8px; }
+::-webkit-scrollbar-track { background:var(--bg2); }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:#3a4055; }
+
+/* Toast */
+.toast { position:fixed; bottom:24px; right:24px; background:var(--bg2); border:1px solid var(--accent); border-radius:var(--radius); padding:12px 20px; font-size:13px; z-index:1000; box-shadow:0 4px 12px var(--shadow); animation:fadeIn .3s; color:var(--text); }
+@keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">AgentDB</div>
+  <a href="#" data-view="dashboard" class="active"><span class="icon">&#9632;</span> Dashboard</a>
+  <a href="#" data-view="memories"><span class="icon">&#9733;</span> Memories</a>
+  <a href="#" data-view="mindmap"><span class="icon">&#10040;</span> Mind Map</a>
+  <a href="#" data-view="chat"><span class="icon">&#9993;</span> Chat Console</a>
+  <a href="#" data-view="editor"><span class="icon">&#9998;</span> Markdown Editor</a>
+  <a href="#" data-view="skills"><span class="icon">&#9881;</span> Skills</a>
+  <a href="#" data-view="feedback"><span class="icon">&#10003;</span> Feedback</a>
+  <a href="#" data-view="notifications"><span class="icon">&#9888;</span> Notifications <span id="notif-badge" style="background:var(--red);color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;display:none"></span></a>
+  <a href="#" data-view="import"><span class="icon">&#8679;</span> Import</a>
+  <a href="#" data-view="audit"><span class="icon">&#9776;</span> Audit Log</a>
+  <a href="#" data-view="connect"><span class="icon">&#9889;</span> Connect</a>
+  <a href="#" data-view="settings"><span class="icon">&#9881;</span> Settings</a>
+</nav>
+
+<main>
+  <!-- Dashboard -->
+  <div id="view-dashboard" class="view active">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2>Dashboard</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:12px;color:var(--text2)">Agent:</label>
+        <select id="agent-selector" onchange="loadDashboard()" style="width:160px"></select>
+      </div>
+    </div>
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="card">
+      <h3>System Info</h3>
+      <div id="system-info"></div>
+    </div>
+  </div>
+
+  <!-- Memory Browser -->
+  <div id="view-memories" class="view">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2>Memory Browser</h2>
+      <button class="btn btn-primary" onclick="toggleMemForm()">+ New Memory</button>
+    </div>
+    <div id="mem-create-form" class="card" style="display:none;margin-bottom:16px">
+      <h3>Create Memory</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <textarea id="mem-new-content" rows="3" placeholder="Memory content..."></textarea>
+        <div style="display:flex;gap:8px">
+          <select id="mem-new-category" style="width:140px">
+            <option value="fact">fact</option><option value="relationship">relationship</option>
+            <option value="preference">preference</option><option value="procedure">procedure</option>
+            <option value="identity">identity</option><option value="directive">directive</option>
+            <option value="observation">observation</option><option value="pattern">pattern</option>
+          </select>
+          <select id="mem-new-source" style="width:140px">
+            <option value="conversation">conversation</option><option value="tool_output">tool_output</option>
+            <option value="markdown_authored">markdown_authored</option>
+          </select>
+          <input type="number" id="mem-new-confidence" value="0.9" min="0" max="1" step="0.1" style="width:80px" placeholder="Confidence">
+          <button class="btn btn-primary" onclick="createMemory()">Save</button>
+          <button class="btn" onclick="toggleMemForm()">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tier="short">Short-Term</button>
+      <button class="tab" data-tier="mid">Midterm</button>
+      <button class="tab" data-tier="long">Long-Term</button>
+    </div>
+    <div class="search-bar">
+      <input type="text" id="mem-search" placeholder="Semantic search across memories...">
+      <button class="btn btn-primary" onclick="searchMemories()">Search</button>
+      <button class="btn" onclick="loadMemories()">Clear</button>
+    </div>
+    <div id="memories-table"></div>
+  </div>
+
+  <!-- Mind Map -->
+  <div id="view-mindmap" class="view">
+    <h2 style="margin-bottom:16px">Mind Map</h2>
+    <div class="search-bar">
+      <input type="text" id="mindmap-entity" placeholder="Enter entity name or ID...">
+      <input type="number" id="mindmap-depth" value="2" min="1" max="5" style="width:60px">
+      <button class="btn btn-primary" onclick="loadMindMap()">Render</button>
+    </div>
+    <canvas id="mindmap-canvas"></canvas>
+  </div>
+
+  <!-- Chat Console -->
+  <div id="view-chat" class="view">
+    <h2 style="margin-bottom:16px">Chat Console</h2>
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <select id="chat-provider" style="width:140px"></select>
+      <button class="btn btn-sm" onclick="startNewSession()">New Session</button>
+      <span id="chat-session-id" style="font-size:12px;color:var(--text2)"></span>
+    </div>
+    <div class="chat-layout">
+      <div class="chat-thread">
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-area">
+          <textarea id="chat-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
+          <button class="btn btn-primary" onclick="sendChat()">Send</button>
+        </div>
+      </div>
+      <div class="chat-sidebar" id="chat-sidebar">
+        <h3 style="margin-bottom:12px;font-size:13px;color:var(--text2)">Observability</h3>
+        <div id="chat-context"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Markdown Editor -->
+  <div id="view-editor" class="view">
+    <h2 style="margin-bottom:16px">Markdown Editor</h2>
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <select id="editor-type" onchange="updateEditorTemplate()" style="width:160px">
+        <option value="memory">Memory</option>
+        <option value="instruction">Instruction</option>
+        <option value="skill">Skill</option>
+        <option value="knowledge">Knowledge</option>
+      </select>
+      <button class="btn btn-primary" onclick="submitMarkdown()">Submit</button>
+    </div>
+    <div class="editor-layout">
+      <div class="editor-pane">
+        <textarea id="editor-textarea" placeholder="Write your markdown here..."></textarea>
+      </div>
+      <div class="preview-pane" id="editor-preview"></div>
+    </div>
+  </div>
+
+  <!-- Skills Manager -->
+  <div id="view-skills" class="view">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2>Skills Manager</h2>
+      <button class="btn btn-primary" onclick="toggleSkillForm()">+ New Skill</button>
+    </div>
+    <div id="skill-create-form" class="card" style="display:none;margin-bottom:16px">
+      <h3>Create Skill</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <input type="text" id="skill-new-name" placeholder="Skill name">
+        <textarea id="skill-new-desc" rows="2" placeholder="Description of what this skill does"></textarea>
+        <div style="display:flex;gap:8px">
+          <select id="skill-new-type" style="width:180px">
+            <option value="prompt_template">prompt_template</option>
+            <option value="code_procedure">code_procedure</option>
+            <option value="tool_invocation">tool_invocation</option>
+            <option value="composite">composite</option>
+          </select>
+          <button class="btn btn-primary" onclick="createSkill()">Save</button>
+          <button class="btn" onclick="toggleSkillForm()">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div id="skills-table"></div>
+  </div>
+
+  <!-- Feedback & Contradictions -->
+  <div id="view-feedback" class="view">
+    <h2 style="margin-bottom:16px">Feedback & Contradictions</h2>
+    <div class="tabs">
+      <button class="tab active" data-fb="contradictions">Contradictions</button>
+      <button class="tab" data-fb="feedback">Pending Feedback</button>
+    </div>
+    <div id="feedback-content"></div>
+  </div>
+
+  <!-- Notifications -->
+  <div id="view-notifications" class="view">
+    <h2 style="margin-bottom:16px">Notifications</h2>
+    <div class="search-bar">
+      <select id="notif-filter-priority" style="width:120px"><option value="">All Priority</option><option>low</option><option>medium</option><option>high</option><option>critical</option></select>
+      <select id="notif-filter-read" style="width:120px"><option value="">All</option><option value="0">Unread</option><option value="1">Read</option></select>
+      <button class="btn" onclick="loadNotifications()">Filter</button>
+      <button class="btn btn-danger" onclick="dismissAllNotifications()">Dismiss All Read</button>
+    </div>
+    <div id="notifications-list"></div>
+  </div>
+
+  <!-- Import Manager -->
+  <div id="view-import" class="view">
+    <h2 style="margin-bottom:16px">Import Manager</h2>
+    <div class="card">
+      <h3>Import Chat History</h3>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
+        <select id="import-provider" style="width:140px">
+          <option value="chatgpt">ChatGPT</option>
+          <option value="claude">Claude</option>
+          <option value="generic">Generic JSONL</option>
+        </select>
+        <input type="file" id="import-file" accept=".json,.jsonl,.zip">
+        <button class="btn btn-primary" onclick="startImport()">Import</button>
+      </div>
+      <div id="import-progress" style="margin-top:16px;display:none">
+        <div class="progress-bar"><div class="progress-fill" id="import-fill" style="width:0%"></div></div>
+        <div id="import-status" style="font-size:13px;color:var(--text2);margin-top:4px"></div>
+      </div>
+      <div id="import-summary" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+  <!-- Audit Log -->
+  <div id="view-audit" class="view">
+    <h2 style="margin-bottom:16px">Audit Log</h2>
+    <div class="search-bar">
+      <select id="audit-table" style="width:180px"><option value="">All Tables</option></select>
+      <select id="audit-op" style="width:120px"><option value="">All Ops</option><option>insert</option><option>update</option><option>delete</option><option>promote</option><option>demote</option></select>
+      <button class="btn" onclick="loadAudit()">Filter</button>
+    </div>
+    <div id="audit-table-content"></div>
+  </div>
+
+  <!-- Connect / Integration Guide -->
+  <div id="view-connect" class="view">
+    <h2 style="margin-bottom:16px">Connect Your AI Agent</h2>
+
+    <div class="card">
+      <h3>Connection Status</h3>
+      <div id="connect-status" style="margin-top:8px">
+        <span style="color:var(--text2)">Checking...</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Base URL</h3>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <span class="copy-url" id="connect-base-url">http://localhost:8420</span>
+        <button class="btn btn-sm" onclick="copyToClipboard('http://localhost:8420')">Copy</button>
+      </div>
+      <p class="section-desc" style="margin-top:10px">All Agent API endpoints are prefixed with <code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:12px">/api/agent/</code></p>
+    </div>
+
+    <div class="card">
+      <h3>Agent API Endpoints</h3>
+      <div id="connect-endpoints" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Quick Start</h3>
+      <div class="tabs" id="connect-tabs">
+        <button class="tab active" onclick="showCodeTab('curl')">cURL</button>
+        <button class="tab" onclick="showCodeTab('python')">Python</button>
+        <button class="tab" onclick="showCodeTab('js')">JavaScript</button>
+      </div>
+      <div class="code-block" id="connect-code"></div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="view-settings" class="view">
+    <h2 style="margin-bottom:16px">Settings</h2>
+    <div id="settings-sections"></div>
+    <div class="card">
+      <h3>Maintenance</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn" onclick="triggerMaintenance('consolidate')">Run Consolidation</button>
+        <button class="btn" onclick="triggerMaintenance('integrity-check')">Integrity Check</button>
+        <button class="btn" onclick="triggerMaintenance('sleep-cycle')">Sleep Cycle</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   JavaScript — AgentDB Management UI
+   ═══════════════════════════════════════════════════════════════ */
+
+const API = '';
+let currentTier = 'short';
+let chatSessionId = null;
+let chatHistory = [];
+
+// ── Navigation ──
+document.querySelectorAll('nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const view = a.dataset.view;
+    document.querySelectorAll('nav a').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-' + view).classList.add('active');
+    if (view === 'dashboard') loadDashboard();
+    if (view === 'memories') loadMemories();
+    if (view === 'skills') loadSkills();
+    if (view === 'feedback') loadFeedback();
+    if (view === 'notifications') loadNotifications();
+    if (view === 'audit') loadAudit();
+    if (view === 'settings') loadSettings();
+    if (view === 'editor') updateEditorTemplate();
+    if (view === 'connect') loadConnect();
+  });
+});
+
+// ── API Helper ──
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  return r.json();
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Copied!')).catch(() => toast('Copy failed'));
+}
+
+// ── Dashboard ──
+async function loadDashboard() {
+  const r = await api('GET', '/api/stats');
+  if (r.status !== 'ok') return;
+  const d = r.data;
+  const grid = document.getElementById('stats-grid');
+  const items = [
+    ['Short-Term', d.short_term_memories, 'stm'],
+    ['Midterm', d.midterm_memories, 'mtm'],
+    ['Long-Term', d.long_term_memories, 'ltm'],
+    ['Entities', d.entities, ''],
+    ['Skills', d.skills, ''],
+    ['Active Goals', d.active_goals, ''],
+    ['Contradictions', d.unresolved_contradictions, 'warn'],
+    ['Pending Feedback', d.pending_feedback, 'warn'],
+    ['Sessions', d.sessions, ''],
+    ['Relations', d.relations, ''],
+  ];
+  grid.innerHTML = items.map(([label, value, cls]) =>
+    `<div class="stat-card"><div class="value" style="${cls==='warn'&&value>0?'color:var(--yellow)':''}">${value}</div><div class="label">${label}</div></div>`
+  ).join('');
+  document.getElementById('system-info').innerHTML =
+    `<div style="font-size:13px;line-height:2">
+      <b>LLM Provider:</b> ${d.llm_provider || 'Not configured'}<br>
+      <b>Embedding Model:</b> ${d.embedding_model || 'N/A'}<br>
+      <b>File Watcher:</b> ${d.markdown_watch_enabled === 'true' ? '<span class="status ok">Enabled</span>' : '<span class="status closed">Disabled</span>'}
+    </div>`;
+}
+
+// ── Memory Browser ──
+document.querySelectorAll('.tab[data-tier]').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab[data-tier]').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    currentTier = t.dataset.tier;
+    loadMemories();
+  });
+});
+
+async function loadMemories() {
+  const r = await api('GET', `/api/memories/${currentTier}?limit=50`);
+  if (r.status !== 'ok') return;
+  const tierLabel = {short:'short_term',mid:'midterm',long:'long_term'}[currentTier];
+  const cols = currentTier === 'short' ? 5 : 6;
+  const el = document.getElementById('memories-table');
+  if (!r.data.length) { el.innerHTML = '<p style="color:var(--text2)">No memories found.</p>'; return; }
+  el.innerHTML = `<table><thead><tr><th>ID</th><th>Content</th>${currentTier!=='short'?'<th>Conf</th>':''}<th>Category</th><th>Created</th><th></th></tr></thead><tbody>` +
+    r.data.map(m => {
+      const content = (m.content||'').substring(0,100) + ((m.content||'').length>100?'...':'');
+      const ts = m.timestamp || m.created_at || '';
+      const cat = m.category || m.status || '';
+      return `<tr class="expandable" onclick="if(event.target.tagName!=='BUTTON')toggleRow(this)">
+        <td style="font-family:var(--mono);font-size:12px">${(m.id||'').substring(0,8)}</td>
+        <td>${esc(content)}</td>
+        ${currentTier!=='short'?`<td>${(m.confidence||0).toFixed(2)}</td>`:''}
+        <td><span class="tier ${tierLabel}">${cat}</span></td>
+        <td style="font-size:12px;white-space:nowrap">${ts.substring(0,16)}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteMemory('${currentTier}','${m.id}')">Delete</button></td>
+      </tr>
+      <tr class="expand-content" style="display:none"><td colspan="${cols}"><pre style="margin-bottom:8px">${esc(m.content||'')}</pre><b>Full ID:</b> ${m.id}<br><b>Agent:</b> ${m.agent_id||'default'}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+function toggleRow(tr) { const next = tr.nextElementSibling; next.style.display = next.style.display === 'table-row' ? 'none' : 'table-row'; }
+
+async function searchMemories() {
+  const q = document.getElementById('mem-search').value.trim();
+  if (!q) return loadMemories();
+  const r = await api('POST', '/api/memories/search', { query: q, tiers: [currentTier], limit: 20 });
+  if (r.status !== 'ok') return;
+  const results = r.data[currentTier] || [];
+  const el = document.getElementById('memories-table');
+  if (!results.length) { el.innerHTML = '<p style="color:var(--text2)">No results.</p>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Score</th><th>Content</th><th>ID</th><th></th></tr></thead><tbody>` +
+    results.map(m => `<tr><td style="color:var(--accent);font-weight:600">${(m.similarity_score||0).toFixed(4)}</td><td>${esc((m.content||'').substring(0,150))}</td><td style="font-family:var(--mono);font-size:12px">${(m.id||'').substring(0,8)}</td><td><button class="btn btn-sm btn-danger" onclick="deleteMemory('${currentTier}','${m.id}')">Delete</button></td></tr>`).join('') +
+    '</tbody></table>';
+}
+
+function toggleMemForm() { const f = document.getElementById('mem-create-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; }
+
+async function createMemory() {
+  const content = document.getElementById('mem-new-content').value.trim();
+  if (!content) return toast('Content is required');
+  const category = document.getElementById('mem-new-category').value;
+  const source = document.getElementById('mem-new-source').value;
+  const confidence = parseFloat(document.getElementById('mem-new-confidence').value);
+  const body = { content, category, confidence, source, provenance: 'user_authored' };
+  const r = await api('POST', `/api/memories/${currentTier}`, body);
+  if (r.status === 'ok' || r.data?.id) {
+    toast('Memory created');
+    document.getElementById('mem-new-content').value = '';
+    toggleMemForm();
+    loadMemories();
+  } else { toast('Error: ' + (r.error || 'Unknown')); }
+}
+
+async function deleteMemory(tier, id) {
+  if (!confirm('Delete this memory?')) return;
+  await api('DELETE', `/api/memories/${tier}/${id}`);
+  toast('Memory deleted');
+  loadMemories();
+}
+
+// ── Mind Map ──
+function loadMindMap() {
+  const canvas = document.getElementById('mindmap-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  const cs = getComputedStyle(document.documentElement);
+  const bgColor = cs.getPropertyValue('--bg2').trim();
+  const textMuted = cs.getPropertyValue('--text2').trim();
+  const textMain = cs.getPropertyValue('--text').trim();
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const entityInput = document.getElementById('mindmap-entity').value.trim();
+  if (!entityInput) {
+    ctx.fillStyle = textMuted;
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Enter an entity name or ID and click Render', canvas.width/2, canvas.height/2);
+    return;
+  }
+  api('GET', '/api/entities?limit=200').then(r => {
+    if (r.status !== 'ok') return;
+    const entity = r.data.find(e => e.id === entityInput || e.canonical_name.toLowerCase() === entityInput.toLowerCase());
+    if (!entity) {
+      ctx.fillStyle = cs.getPropertyValue('--red').trim();
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Entity not found', canvas.width/2, canvas.height/2);
+      return;
+    }
+    const depth = parseInt(document.getElementById('mindmap-depth').value) || 2;
+    api('GET', `/api/entities/${entity.id}/graph?depth=${depth}`).then(gr => {
+      if (gr.status !== 'ok') return;
+      drawGraph(ctx, canvas, gr.data.nodes, gr.data.edges, textMain);
+    });
+  });
+}
+
+function drawGraph(ctx, canvas, nodes, edges, textColor) {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const colors = { entities:'#0d9488', short_term_memory:'#60a5fa', midterm_memory:'#fbbf24', long_term_memory:'#34d399', skills:'#fbbf24', goals:'#60a5fa', sessions:'#f87171' };
+
+  const byDepth = {};
+  nodes.forEach(n => { (byDepth[n.depth] = byDepth[n.depth] || []).push(n); });
+  const positions = {};
+  Object.entries(byDepth).forEach(([d, ns]) => {
+    const radius = parseInt(d) * 140 + 10;
+    ns.forEach((n, i) => {
+      const angle = (2 * Math.PI * i / ns.length) - Math.PI / 2;
+      positions[n.id + n.table] = { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle), node: n };
+    });
+  });
+
+  ctx.lineWidth = 1;
+  edges.forEach(e => {
+    const from = positions[e.source_id + e.source_table];
+    const to = positions[e.target_id + e.target_table];
+    if (!from || !to) return;
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(13,148,136,0.3)';
+    ctx.lineWidth = Math.max(1, (e.weight || 1) * 2);
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  });
+
+  Object.values(positions).forEach(({ x, y, node }) => {
+    const color = colors[node.table] || '#8b90a0';
+    ctx.beginPath();
+    ctx.arc(x, y, node.depth === 0 ? 12 : 8, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = textColor;
+    ctx.font = node.depth === 0 ? 'bold 13px sans-serif' : '11px sans-serif';
+    ctx.textAlign = 'center';
+    const label = node.data.canonical_name || node.data.name || node.data.content?.substring(0,30) || node.id.substring(0,8);
+    ctx.fillText(label, x, y - 16);
+  });
+}
+
+// ── Chat Console ──
+async function startNewSession() {
+  const r = await api('POST', '/api/agent/session/start', {});
+  if (r.status === 'ok') {
+    chatSessionId = r.data.session_id;
+    chatHistory = [];
+    document.getElementById('chat-messages').innerHTML = '';
+    document.getElementById('chat-context').innerHTML = '';
+    document.getElementById('chat-session-id').textContent = 'Session: ' + chatSessionId.substring(0, 8);
+    toast('New session started');
+  }
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  if (!chatSessionId) await startNewSession();
+  input.value = '';
+
+  appendChatMsg('user', msg);
+  const r = await api('POST', '/api/agent/chat', { message: msg, session_id: chatSessionId, history: chatHistory });
+  if (r.status === 'ok') {
+    const d = r.data;
+    appendChatMsg('assistant', d.response);
+    chatHistory.push({ role: 'user', content: msg });
+    chatHistory.push({ role: 'assistant', content: d.response });
+    renderChatContext(d);
+  } else {
+    appendChatMsg('assistant', 'Error: ' + (r.error || 'Unknown'));
+  }
+}
+
+function appendChatMsg(role, content) {
+  const el = document.getElementById('chat-messages');
+  el.innerHTML += `<div class="chat-msg ${role}"><div class="role">${role}</div>${esc(content)}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderChatContext(data) {
+  const el = document.getElementById('chat-context');
+  let html = '';
+  const cp = data.context_payload || {};
+
+  const mems = cp.memories || {};
+  Object.entries(mems).forEach(([tier, list]) => {
+    if (!list.length) return;
+    html += `<div style="margin-bottom:12px"><b style="color:var(--text2);font-size:11px">${tier.toUpperCase()} MEMORIES</b>`;
+    list.forEach(m => {
+      html += `<div style="margin:4px 0;padding:6px 8px;background:var(--bg);border-radius:4px;font-size:12px"><span style="color:var(--accent)">${(m.similarity_score||0).toFixed(3)}</span> ${esc((m.content||'').substring(0,100))}</div>`;
+    });
+    html += '</div>';
+  });
+
+  const goals = cp.goals || [];
+  if (goals.length) {
+    html += '<div style="margin-bottom:12px"><b style="color:var(--text2);font-size:11px">MATCHED GOALS</b>';
+    goals.forEach(g => { html += `<div style="margin:4px 0;padding:6px 8px;background:var(--bg);border-radius:4px;font-size:12px">${esc(g.description)}</div>`; });
+    html += '</div>';
+  }
+
+  const skills = cp.skills || [];
+  if (skills.length) {
+    html += '<div style="margin-bottom:12px"><b style="color:var(--text2);font-size:11px">MATCHED SKILLS</b>';
+    skills.forEach(s => { html += `<div style="margin:4px 0;padding:6px 8px;background:var(--bg);border-radius:4px;font-size:12px">${esc(s.name)}: ${esc((s.description||'').substring(0,80))}</div>`; });
+    html += '</div>';
+  }
+
+  html += `<div style="margin-top:12px;font-size:11px;color:var(--text2)">
+    <b>Provider:</b> ${data.provider || 'N/A'}<br>
+    <b>Model:</b> ${data.model || 'N/A'}<br>
+    <b>Latency:</b> ${data.llm_latency_seconds || 0}s<br>
+    <b>Snapshot:</b> ${(data.snapshot_id||'').substring(0,8)}
+  </div>`;
+  el.innerHTML = html;
+}
+
+// ── Markdown Editor ──
+function updateEditorTemplate() {
+  const type = document.getElementById('editor-type').value;
+  const templates = {
+    memory: '---\ntype: memory\ncategory: fact\ntags: []\nentities: []\n---\n\nYour memory content here.',
+    instruction: '---\ntype: instruction\npriority: normal\ntags: [behavior]\n---\n\nYour behavioral directive here.',
+    skill: '---\ntype: skill\nexecution_type: code_procedure\nlanguage: python\ndependencies: []\n---\n\n# Skill Name\n\nDescription of what this skill does.\n\n```python\ndef execute(input):\n    return result\n```',
+    knowledge: '---\ntype: knowledge\ntitle: Document Title\ntags: []\nentities: []\n---\n\n## Section One\n\nContent for section one.\n\n## Section Two\n\nContent for section two.',
+  };
+  document.getElementById('editor-textarea').value = templates[type] || '';
+  updatePreview();
+}
+
+document.getElementById('editor-textarea')?.addEventListener('input', updatePreview);
+function updatePreview() {
+  const text = document.getElementById('editor-textarea').value;
+  const preview = document.getElementById('editor-preview');
+  let html = text
+    .replace(/^---[\s\S]*?---/m, '<div style="background:var(--bg3);padding:8px;border-radius:4px;font-family:var(--mono);font-size:12px;margin-bottom:12px;white-space:pre-wrap">$&</div>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  preview.innerHTML = '<p>' + html + '</p>';
+}
+
+async function submitMarkdown() {
+  const text = document.getElementById('editor-textarea').value;
+  const r = await api('POST', '/api/markdown/submit', { text });
+  if (r.data && r.data.status === 'ok') {
+    toast(`${r.data.type} ${r.data.action}: ${r.data.id || r.data.skill_id || r.data.document_entity_id}`);
+  } else {
+    toast('Error: ' + JSON.stringify(r.data?.errors || r.error));
+  }
+}
+
+// ── Skills Manager ──
+async function loadSkills() {
+  const r = await api('GET', '/api/skills');
+  if (r.status !== 'ok') return;
+  const el = document.getElementById('skills-table');
+  if (!r.data.length) { el.innerHTML = '<p style="color:var(--text2)">No skills registered.</p>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Name</th><th>Type</th><th>Ver</th><th>Uses</th><th>Success</th><th>Last Used</th><th></th></tr></thead><tbody>` +
+    r.data.map(s => `<tr>
+      <td><b>${esc(s.name)}</b><div style="font-size:11px;color:var(--text2);margin-top:2px">${esc((s.description||'').substring(0,80))}</div></td>
+      <td>${s.execution_type}</td><td>v${s.version}</td><td>${s.use_count}</td>
+      <td>${(s.success_rate*100).toFixed(0)}%</td>
+      <td style="font-size:12px">${(s.last_used||'Never').substring(0,16)}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="deleteSkill('${s.id}')">Delete</button></td>
+    </tr>`).join('') + '</tbody></table>';
+}
+
+function toggleSkillForm() { const f = document.getElementById('skill-create-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; }
+
+async function createSkill() {
+  const name = document.getElementById('skill-new-name').value.trim();
+  const description = document.getElementById('skill-new-desc').value.trim();
+  const execution_type = document.getElementById('skill-new-type').value;
+  if (!name || !description) return toast('Name and description are required');
+  const r = await api('POST', '/api/skills', { name, description, execution_type });
+  if (r.data?.id) {
+    toast('Skill created');
+    document.getElementById('skill-new-name').value = '';
+    document.getElementById('skill-new-desc').value = '';
+    toggleSkillForm();
+    loadSkills();
+  } else { toast('Error: ' + (r.error || 'Unknown')); }
+}
+
+async function deleteSkill(id) {
+  if (!confirm('Delete this skill and all its implementations?')) return;
+  await api('DELETE', `/api/skills/${id}`);
+  toast('Skill deleted');
+  loadSkills();
+}
+
+// ── Feedback ──
+document.querySelectorAll('.tab[data-fb]').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab[data-fb]').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    loadFeedback(t.dataset.fb);
+  });
+});
+
+async function loadFeedback(tab) {
+  tab = tab || 'contradictions';
+  const el = document.getElementById('feedback-content');
+  if (tab === 'contradictions') {
+    const r = await api('GET', '/api/contradictions?resolution=unresolved');
+    if (r.status !== 'ok') return;
+    if (!r.data.length) { el.innerHTML = '<p style="color:var(--text2)">No unresolved contradictions.</p>'; return; }
+    el.innerHTML = r.data.map(c => `<div class="card">
+      <div style="display:flex;gap:16px;align-items:center">
+        <div style="flex:1"><b>Memory A:</b> ${c.memory_a_table}:${c.memory_a_id.substring(0,8)}</div>
+        <div style="flex:1"><b>Memory B:</b> ${c.memory_b_table}:${c.memory_b_id.substring(0,8)}</div>
+        <span class="status unresolved">${c.resolution}</span>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="resolveContradiction('${c.id}','a_kept')">Keep A</button>
+        <button class="btn btn-sm" onclick="resolveContradiction('${c.id}','b_kept')">Keep B</button>
+        <button class="btn btn-sm" onclick="resolveContradiction('${c.id}','merged')">Merge</button>
+      </div>
+    </div>`).join('');
+  } else {
+    const r = await api('GET', '/api/audit?triggered_by=user_feedback&limit=50');
+    el.innerHTML = '<p style="color:var(--text2)">Feedback items shown in audit log.</p>';
+  }
+}
+
+async function resolveContradiction(id, resolution) {
+  await api('POST', `/api/contradictions/${id}/resolve`, { resolution, reasoning: 'User resolved via UI', resolved_by: 'user' });
+  toast('Contradiction resolved');
+  loadFeedback('contradictions');
+}
+
+// ── Import ──
+function startImport() {
+  toast('Import: File upload requires server-side multipart support. Use CLI for now.');
+}
+
+// ── Audit Log ──
+async function loadAudit() {
+  const table = document.getElementById('audit-table').value;
+  const op = document.getElementById('audit-op').value;
+  let url = '/api/audit?limit=50';
+  if (table) url += `&table_name=${table}`;
+  if (op) url += `&operation=${op}`;
+  const r = await api('GET', url);
+  if (r.status !== 'ok') return;
+  const el = document.getElementById('audit-table-content');
+  if (!r.data.length) { el.innerHTML = '<p style="color:var(--text2)">No audit entries.</p>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Timestamp</th><th>Table</th><th>Operation</th><th>Row ID</th><th>Triggered By</th></tr></thead><tbody>` +
+    r.data.map(a => `<tr><td style="font-size:12px;white-space:nowrap">${(a.timestamp||'').substring(0,19)}</td><td>${a.table_name}</td><td>${a.operation}</td><td style="font-family:var(--mono);font-size:12px">${(a.row_id||'').substring(0,8)}</td><td>${a.triggered_by}</td></tr>`).join('') +
+    '</tbody></table>';
+}
+
+// ── Settings ──
+const SETTINGS_SCHEMA = {
+  'LLM Provider': {
+    id: 'settings-llm',
+    desc: 'Configure which AI provider to use for chat and memory consolidation.',
+    fields: [
+      { key: 'llm_provider', label: 'Provider', type: 'select', options: ['claude','openai','local'], hint: 'AI service for chat pipeline' },
+      { key: 'llm_api_key', label: 'API Key', type: 'password', hint: 'Your LLM provider API key' },
+      { key: 'llm_model', label: 'Model', type: 'text', hint: 'e.g. claude-sonnet-4-20250514, gpt-4o' },
+      { key: 'llm_endpoint', label: 'Custom Endpoint', type: 'text', hint: 'Leave empty for default provider URL', fullWidth: true },
+      { key: 'max_context_tokens', label: 'Max Context Tokens', type: 'number', hint: 'Maximum tokens for context window', min: 500, max: 128000 },
+    ]
+  },
+  'Agent API': {
+    id: 'settings-agent-api',
+    desc: 'API key for authenticating external AI agents connecting to AgentDB.',
+    fields: [
+      { key: 'agent_api_key', label: 'Agent API Key', type: 'password', hint: 'External agents include this in X-API-Key header', fullWidth: true },
+    ]
+  },
+  'Memory & Consolidation': {
+    id: 'settings-memory',
+    desc: 'Control how memories are promoted, decayed, and consolidated.',
+    fields: [
+      { key: 'consolidation_enabled', label: 'Consolidation', type: 'toggle', hint: 'Enable automatic memory consolidation' },
+      { key: 'consolidation_interval_seconds', label: 'Interval (sec)', type: 'number', hint: 'Seconds between consolidation runs', min: 30 },
+      { key: 'decay_enabled', label: 'Decay', type: 'toggle', hint: 'Enable memory confidence decay over time' },
+      { key: 'decay_rate_multiplier', label: 'Decay Rate', type: 'number', hint: 'Multiplier for decay speed (1.0 = normal)', min: 0, max: 10, step: 0.1 },
+      { key: 'stm_default_ttl_seconds', label: 'STM TTL (sec)', type: 'number', hint: 'Short-term memory time-to-live', min: 60 },
+      { key: 'promotion_confidence_threshold', label: 'Promotion Threshold', type: 'number', hint: 'Min confidence to promote (0-1)', min: 0, max: 1, step: 0.05 },
+      { key: 'staleness_threshold_days', label: 'Staleness (days)', type: 'number', hint: 'Days before memory is considered stale', min: 1 },
+    ]
+  },
+  'Search & Retrieval': {
+    id: 'settings-search',
+    desc: 'Tune how context retrieval finds and ranks relevant memories.',
+    fields: [
+      { key: 'clustering_similarity_threshold', label: 'Clustering Threshold', type: 'number', hint: 'Min similarity for clustering (0-1)', min: 0, max: 1, step: 0.05 },
+      { key: 'goal_similarity_threshold', label: 'Goal Threshold', type: 'number', hint: 'Min similarity for goal matching', min: 0, max: 1, step: 0.05 },
+      { key: 'skill_similarity_threshold', label: 'Skill Threshold', type: 'number', hint: 'Min similarity for skill matching', min: 0, max: 1, step: 0.05 },
+      { key: 'context_results_per_tier', label: 'Results per Tier', type: 'number', hint: 'Max results returned per memory tier', min: 1, max: 100 },
+      { key: 'bm25_enabled', label: 'BM25 Search', type: 'toggle', hint: 'Enable keyword-based BM25 search' },
+      { key: 'graph_traversal_enabled', label: 'Graph Traversal', type: 'toggle', hint: 'Enable entity graph relationship traversal' },
+      { key: 'temporal_boost_enabled', label: 'Temporal Boost', type: 'toggle', hint: 'Boost recently accessed memories' },
+      { key: 'temporal_decay_curve', label: 'Temporal Curve', type: 'number', hint: 'Decay curve for temporal boost (0-1)', min: 0, max: 1, step: 0.01 },
+    ]
+  },
+  'Embedding': {
+    id: 'settings-embedding',
+    desc: 'Configure the embedding model used for semantic search.',
+    fields: [
+      { key: 'embedding_model', label: 'Model', type: 'text', hint: 'Sentence-transformers model name' },
+      { key: 'embedding_dimensions', label: 'Dimensions', type: 'number', hint: 'Embedding vector dimensions', min: 1 },
+      { key: 'reranker_enabled', label: 'Reranker', type: 'toggle', hint: 'Enable cross-encoder reranking' },
+      { key: 'reranker_model', label: 'Reranker Model', type: 'text', hint: 'Cross-encoder model for reranking' },
+    ]
+  },
+  'Markdown': {
+    id: 'settings-markdown',
+    desc: 'Configure markdown document inbox and file watching.',
+    fields: [
+      { key: 'markdown_inbox_path', label: 'Inbox Path', type: 'text', hint: 'Directory to watch for markdown files', fullWidth: true },
+      { key: 'markdown_watch_enabled', label: 'File Watcher', type: 'toggle', hint: 'Auto-process new markdown files' },
+      { key: 'markdown_watch_interval_seconds', label: 'Watch Interval (sec)', type: 'number', hint: 'Seconds between watcher scans', min: 1 },
+    ]
+  },
+  'Notifications': {
+    id: 'settings-notifications',
+    desc: 'Configure notification delivery and filtering.',
+    fields: [
+      { key: 'notification_webhook_url', label: 'Webhook URL', type: 'text', hint: 'URL for notification webhooks (optional)', fullWidth: true },
+      { key: 'notification_priority_threshold', label: 'Min Priority', type: 'select', options: ['low','medium','high','critical'], hint: 'Only notify at this priority or above' },
+    ]
+  },
+  'Sleep & Security': {
+    id: 'settings-sleep',
+    desc: 'Configure idle behavior, reflection, and security settings.',
+    fields: [
+      { key: 'sleep_idle_threshold_seconds', label: 'Idle Threshold (sec)', type: 'number', hint: 'Seconds of inactivity before sleep mode', min: 30 },
+      { key: 'sleep_reflection_enabled', label: 'Reflection', type: 'toggle', hint: 'Enable sleep-time reflection processing' },
+      { key: 'sleep_graph_pruning_threshold_days', label: 'Graph Prune (days)', type: 'number', hint: 'Days before pruning unused graph nodes', min: 1 },
+      { key: 'encryption_enabled', label: 'Encryption', type: 'toggle', hint: 'Enable database encryption (requires SQLCipher)' },
+    ]
+  },
+};
+
+async function loadSettings() {
+  const r = await api('GET', '/api/config');
+  if (r.status !== 'ok') return;
+
+  const configMap = {};
+  r.data.forEach(c => { configMap[c.key] = c.value || ''; });
+
+  const container = document.getElementById('settings-sections');
+  let html = '';
+
+  for (const [sectionName, section] of Object.entries(SETTINGS_SCHEMA)) {
+    html += `<div class="card settings-section"><h3>${sectionName}</h3><p class="section-desc">${section.desc}</p><div class="settings-grid">`;
+
+    for (const field of section.fields) {
+      const val = configMap[field.key] || '';
+      const fw = field.fullWidth ? ' full-width' : '';
+
+      if (field.type === 'toggle') {
+        const checked = val === 'true' ? 'checked' : '';
+        html += `<div class="setting-item${fw}">
+          <div class="setting-label">${field.label}</div>
+          <label class="setting-toggle"><input type="checkbox" id="cfg-${field.key}" ${checked} onchange="saveConfig('${field.key}')"><span class="slider"></span></label>
+          <div class="setting-hint">${field.hint || ''}</div>
+        </div>`;
+      } else if (field.type === 'select') {
+        const opts = field.options.map(o => `<option value="${o}"${o===val?' selected':''}>${o}</option>`).join('');
+        html += `<div class="setting-item${fw}">
+          <div class="setting-label">${field.label}</div>
+          <select id="cfg-${field.key}" onchange="saveConfig('${field.key}')" style="width:100%">${opts}</select>
+          <div class="setting-hint">${field.hint || ''}</div>
+        </div>`;
+      } else if (field.type === 'password') {
+        html += `<div class="setting-item${fw}">
+          <div class="setting-label">${field.label}</div>
+          <input type="password" id="cfg-${field.key}" value="${esc(val)}" onchange="saveConfig('${field.key}')" style="width:100%" placeholder="Enter key...">
+          <div class="setting-hint">${field.hint || ''}</div>
+        </div>`;
+      } else if (field.type === 'number') {
+        const attrs = [
+          field.min !== undefined ? `min="${field.min}"` : '',
+          field.max !== undefined ? `max="${field.max}"` : '',
+          field.step !== undefined ? `step="${field.step}"` : '',
+        ].join(' ');
+        html += `<div class="setting-item${fw}">
+          <div class="setting-label">${field.label}</div>
+          <input type="number" id="cfg-${field.key}" value="${esc(val)}" ${attrs} onchange="saveConfig('${field.key}')" style="width:100%">
+          <div class="setting-hint">${field.hint || ''}</div>
+        </div>`;
+      } else {
+        html += `<div class="setting-item${fw}">
+          <div class="setting-label">${field.label}</div>
+          <input type="text" id="cfg-${field.key}" value="${esc(val)}" onchange="saveConfig('${field.key}')" style="width:100%">
+          <div class="setting-hint">${field.hint || ''}</div>
+        </div>`;
+      }
+    }
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+}
+
+async function saveConfig(key) {
+  const el = document.getElementById('cfg-' + key);
+  let val;
+  if (el.type === 'checkbox') {
+    val = el.checked ? 'true' : 'false';
+  } else {
+    val = el.value;
+  }
+  await api('PUT', `/api/config/${key}`, { value: val });
+  toast(`Saved: ${key}`);
+}
+
+async function triggerMaintenance(action) {
+  await api('POST', `/api/maintenance/${action}`, {});
+  toast(`${action} triggered`);
+}
+
+// ── Connect / Integration Guide ──
+const AGENT_ENDPOINTS = [
+  { method: 'GET',  path: '/api/agent/health',       desc: 'Health check - verify AgentDB is running' },
+  { method: 'GET',  path: '/api/agent/identity',     desc: 'Get agent identity and directive memories' },
+  { method: 'POST', path: '/api/agent/context',      desc: 'Retrieve relevant context for a query', body: '{ "query": "..." }' },
+  { method: 'POST', path: '/api/agent/ingest',       desc: 'Store a new observation as short-term memory', body: '{ "content": "...", "source": "conversation" }' },
+  { method: 'POST', path: '/api/agent/ingest/batch',  desc: 'Batch ingest multiple observations', body: '{ "observations": [...] }' },
+  { method: 'POST', path: '/api/agent/skill/match',   desc: 'Find skills matching a description', body: '{ "description": "..." }' },
+  { method: 'POST', path: '/api/agent/skill/execute',  desc: 'Log execution of a matched skill', body: '{ "skill_id": "...", "inputs": {} }' },
+  { method: 'POST', path: '/api/agent/goals/check',    desc: 'Check active goals against context', body: '{ "context": "..." }' },
+  { method: 'POST', path: '/api/agent/session/start',  desc: 'Start a new agent session', body: '{}' },
+  { method: 'POST', path: '/api/agent/session/end',    desc: 'End a session with optional summary', body: '{ "session_id": "...", "summary": "..." }' },
+  { method: 'POST', path: '/api/agent/chat',           desc: 'Full chat pipeline with memory-augmented LLM', body: '{ "message": "...", "session_id": "..." }' },
+];
+
+const CODE_EXAMPLES = {
+  curl: `# Check health
+curl http://localhost:8420/api/agent/health
+
+# Retrieve context for a query
+curl -X POST http://localhost:8420/api/agent/context \\
+  -H "Content-Type: application/json" \\
+  -d '{"query": "What do I know about the user?"}'
+
+# Ingest a new memory
+curl -X POST http://localhost:8420/api/agent/ingest \\
+  -H "Content-Type: application/json" \\
+  -d '{"content": "User prefers dark mode", "source": "conversation"}'
+
+# Full chat pipeline
+curl -X POST http://localhost:8420/api/agent/chat \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "Hello!", "session_id": "your-session-id"}'`,
+
+  python: `import requests
+
+BASE = "http://localhost:8420"
+
+# Check health
+r = requests.get(f"{BASE}/api/agent/health")
+print(r.json())
+
+# Retrieve context
+r = requests.post(f"{BASE}/api/agent/context", json={
+    "query": "What do I know about the user?"
+})
+context = r.json()["data"]
+
+# Ingest a memory
+requests.post(f"{BASE}/api/agent/ingest", json={
+    "content": "User prefers dark mode",
+    "source": "conversation"
+})
+
+# Full chat pipeline
+r = requests.post(f"{BASE}/api/agent/chat", json={
+    "message": "Hello!",
+    "session_id": "your-session-id"
+})
+print(r.json()["data"]["response"])`,
+
+  js: `const BASE = "http://localhost:8420";
+
+// Check health
+const health = await fetch(\`\${BASE}/api/agent/health\`);
+console.log(await health.json());
+
+// Retrieve context
+const ctx = await fetch(\`\${BASE}/api/agent/context\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ query: "What do I know about the user?" })
+});
+const context = (await ctx.json()).data;
+
+// Ingest a memory
+await fetch(\`\${BASE}/api/agent/ingest\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    content: "User prefers dark mode",
+    source: "conversation"
+  })
+});
+
+// Full chat pipeline
+const chat = await fetch(\`\${BASE}/api/agent/chat\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ message: "Hello!", session_id: "your-session-id" })
+});
+console.log((await chat.json()).data.response);`
+};
+
+let currentCodeTab = 'curl';
+
+function showCodeTab(lang) {
+  currentCodeTab = lang;
+  document.querySelectorAll('#connect-tabs .tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`#connect-tabs .tab[onclick="showCodeTab('${lang}')"]`).classList.add('active');
+  document.getElementById('connect-code').textContent = CODE_EXAMPLES[lang];
+}
+
+async function loadConnect() {
+  // Status check
+  const statusEl = document.getElementById('connect-status');
+  try {
+    const r = await api('GET', '/api/agent/health');
+    if (r.status === 'ok') {
+      statusEl.innerHTML = `<span class="status ok">Connected</span> <span style="font-size:13px;color:var(--text2);margin-left:8px">Backend running on port 8420</span>`;
+    } else {
+      statusEl.innerHTML = `<span class="status error">Error</span> <span style="font-size:13px;color:var(--text2);margin-left:8px">${r.error || 'Unknown error'}</span>`;
+    }
+  } catch(e) {
+    statusEl.innerHTML = `<span class="status error">Offline</span> <span style="font-size:13px;color:var(--text2);margin-left:8px">Cannot reach backend</span>`;
+  }
+
+  // Endpoint table
+  const endEl = document.getElementById('connect-endpoints');
+  endEl.innerHTML = `<table class="endpoint-table"><thead><tr><th>Method</th><th>Endpoint</th><th>Description</th><th>Body</th></tr></thead><tbody>` +
+    AGENT_ENDPOINTS.map(ep => `<tr>
+      <td><span class="method-badge ${ep.method.toLowerCase()}">${ep.method}</span></td>
+      <td style="font-family:var(--mono);font-size:12px">${ep.path}</td>
+      <td style="font-size:12px">${ep.desc}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--text2)">${ep.body || '-'}</td>
+    </tr>`).join('') + '</tbody></table>';
+
+  // Code examples
+  showCodeTab(currentCodeTab);
+}
+
+// ── Notifications ──
+async function loadNotifications() {
+  const priority = document.getElementById('notif-filter-priority').value;
+  const read = document.getElementById('notif-filter-read').value;
+  let url = '/api/notifications?limit=50';
+  if (priority) url += `&priority=${priority}`;
+  if (read !== '') url += `&read=${read}`;
+  const r = await api('GET', url);
+  if (r.status !== 'ok') return;
+  const el = document.getElementById('notifications-list');
+  if (!r.data || !r.data.length) { el.innerHTML = '<p style="color:var(--text2)">No notifications.</p>'; return; }
+  el.innerHTML = r.data.map(n => {
+    const priorityColor = {critical:'var(--red)',high:'var(--yellow)',medium:'var(--text)',low:'var(--text2)'}[n.priority] || 'var(--text)';
+    return `<div class="card" style="border-left:3px solid ${priorityColor};${n.read?'opacity:.6':''}">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <b>${esc(n.title)}</b>
+          <span style="font-size:11px;color:var(--text2);margin-left:8px">${n.trigger_type} | ${n.priority}</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:11px;color:var(--text2)">${(n.created_at||'').substring(0,16)}</span>
+          ${n.read ? '<span class="status closed">read</span>' : `<button class="btn btn-sm" onclick="markNotifRead('${n.id}')">Mark Read</button>`}
+        </div>
+      </div>
+      ${n.body ? `<div style="margin-top:8px;font-size:13px;color:var(--text2)">${esc(n.body)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function markNotifRead(id) {
+  await api('PUT', `/api/notifications/${id}/read`, {});
+  loadNotifications();
+  updateNotifBadge();
+}
+
+async function dismissAllNotifications() {
+  await api('POST', '/api/notifications/dismiss', {});
+  loadNotifications();
+  updateNotifBadge();
+  toast('Notifications dismissed');
+}
+
+async function updateNotifBadge() {
+  const r = await api('GET', '/api/notifications?read=0&limit=100');
+  const badge = document.getElementById('notif-badge');
+  if (r.status === 'ok' && r.data && r.data.length > 0) {
+    badge.textContent = r.data.length;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ── Agent Selector ──
+async function loadAgents() {
+  const r = await api('GET', '/api/agents');
+  const sel = document.getElementById('agent-selector');
+  sel.innerHTML = '<option value="">All Agents</option>';
+  if (r.status === 'ok' && r.data) {
+    r.data.forEach(a => {
+      sel.innerHTML += `<option value="${a.id}">${esc(a.name)} (${a.id})</option>`;
+    });
+  }
+}
+
+// ── Chat provider dropdown ──
+async function loadProviders() {
+  const sel = document.getElementById('chat-provider');
+  sel.innerHTML = '<option value="claude">Claude</option><option value="openai">OpenAI</option><option value="local">Local LLM</option>';
+}
+
+// ── Utility ──
+function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+
+// ── Init ──
+loadDashboard();
+loadProviders();
+loadAgents();
+updateNotifBadge();
+</script>
+</body>
+</html>
