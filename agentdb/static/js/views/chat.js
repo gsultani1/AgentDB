@@ -310,7 +310,7 @@
       AgentDB.api('POST', '/api/agent/chat', payload)
         .then(function (res) {
           /* Remove typing indicator */
-          if (typingEl && typingEl.parentNode) typingEl.parentNode.removeChild(typingEl);
+          V.removeTyping(typingEl);
 
           var d = res.data || {};
           if (res.status === 'ok' && d.response) {
@@ -326,7 +326,7 @@
           }
         })
         .catch(function () {
-          if (typingEl && typingEl.parentNode) typingEl.parentNode.removeChild(typingEl);
+          V.removeTyping(typingEl);
           V.appendMsg('error', 'Network error — could not reach the agent.');
         });
     });
@@ -392,12 +392,33 @@
     var el = document.createElement('div');
     el.className = 'typing-indicator';
     el.id = 'typing-indicator';
-    el.innerHTML = '<span></span><span></span><span></span>';
+    el.innerHTML = '<span></span><span></span><span></span>' +
+                   '<span class="typing-status" id="typing-status">Retrieving context\u2026</span>';
 
     messagesEl.appendChild(el);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
+    /* Phase the status label based on elapsed time */
+    var startMs = Date.now();
+    el._statusInterval = setInterval(function () {
+      var statusEl = document.getElementById('typing-status');
+      if (!statusEl) { clearInterval(el._statusInterval); return; }
+      var elapsed = Date.now() - startMs;
+      if (elapsed > 8000) {
+        statusEl.textContent = 'Still working\u2026 models may be loading';
+      } else if (elapsed > 3000) {
+        statusEl.textContent = 'Waiting for model response\u2026';
+      }
+    }, 1000);
+
     return el;
+  };
+
+  /* Clean up typing indicator interval */
+  V.removeTyping = function removeTyping(el) {
+    if (!el) return;
+    if (el._statusInterval) clearInterval(el._statusInterval);
+    if (el.parentNode) el.parentNode.removeChild(el);
   };
 
   /* =============================================================
@@ -408,31 +429,117 @@
     if (!ctx) return;
 
     var payload = data.context_payload || {};
+    var memBucket = payload.memories || {};
     var html = '';
+
+    /* ---- Retrieval strategies used ---- */
+    var strats = payload.retrieval_strategies;
+    if (strats && strats.length) {
+      html += '<div class="obs-strategies">';
+      for (var i = 0; i < strats.length; i++) {
+        html += '<span class="obs-strategy-badge">' + AgentDB.esc(strats[i]) + '</span>';
+      }
+      html += '</div>';
+    }
 
     /* ---- Memories by tier ---- */
     var tiers = [
-      { key: 'short_term',  label: 'SHORT-TERM MEMORIES' },
-      { key: 'midterm',     label: 'MID-TERM MEMORIES' },
-      { key: 'long_term',   label: 'LONG-TERM MEMORIES' },
+      { key: 'short_term',  label: 'Short-Term Memories', color: '#3b82f6' },
+      { key: 'midterm',     label: 'Mid-Term Memories',   color: '#8b5cf6' },
+      { key: 'long_term',   label: 'Long-Term Memories',  color: '#10b981' },
     ];
 
     for (var t = 0; t < tiers.length; t++) {
-      var memories = payload[tiers[t].key];
+      var memories = memBucket[tiers[t].key];
       if (!memories || !memories.length) continue;
 
-      html += '<div style="margin-bottom:14px">';
-      html += '<div class="text-sm font-bold mb-8" style="text-transform:uppercase;letter-spacing:.04em;color:var(--text2)">' +
-              AgentDB.esc(tiers[t].label) + '</div>';
+      html += '<div class="obs-section">';
+      html += '<div class="obs-section-title">' +
+              AgentDB.esc(tiers[t].label) +
+              ' <span class="obs-count">' + memories.length + '</span></div>';
 
       for (var m = 0; m < memories.length; m++) {
         var mem = memories[m];
-        var score = (typeof mem.similarity === 'number') ? mem.similarity.toFixed(3) : '—';
-        var snippet = AgentDB.truncate(mem.content || mem.text || '', 100);
+        var combined = (typeof mem.combined_score === 'number') ? mem.combined_score.toFixed(3) : '';
+        var semantic = (typeof mem.similarity_score === 'number') ? mem.similarity_score.toFixed(3) : '';
+        var displayScore = combined || semantic || '—';
+        var snippet = AgentDB.truncate(mem.content || mem.text || '', 120);
 
-        html += '<div style="background:var(--bg);padding:8px 10px;border-radius:var(--radius);margin-bottom:6px;font-size:.85rem">';
-        html += '  <span class="text-accent text-mono font-bold" style="margin-right:6px">' + AgentDB.esc(score) + '</span>';
-        html += '  <span class="text-muted">' + AgentDB.esc(snippet) + '</span>';
+        html += '<div class="obs-mem-card" data-tier="' + tiers[t].key + '">';
+
+        /* Header: score, type badge, metadata */
+        html += '<div class="obs-mem-header">';
+        html += '<span class="obs-mem-score">' + AgentDB.esc(displayScore) + '</span>';
+        if (mem.type) {
+          html += '<span class="obs-mem-type">' + AgentDB.esc(mem.type) + '</span>';
+        }
+        html += '<span class="obs-mem-meta">';
+        if (typeof mem.confidence === 'number') {
+          html += '<span title="Confidence">' + (mem.confidence * 100).toFixed(0) + '%</span>';
+        }
+        if (mem.source) {
+          html += '<span title="Source">' + AgentDB.esc(AgentDB.truncate(mem.source, 20)) + '</span>';
+        }
+        if (mem.created_at || mem.timestamp) {
+          var ts = mem.created_at || mem.timestamp;
+          html += '<span title="' + AgentDB.esc(ts) + '">' + AgentDB.esc(_relativeTime(ts)) + '</span>';
+        }
+        html += '</span>';
+        html += '</div>';
+
+        /* Content */
+        html += '<div class="obs-mem-content">' + AgentDB.esc(snippet) + '</div>';
+
+        /* Strategy score breakdown bars */
+        var rs = mem.retrieval_strategies;
+        if (rs && typeof rs === 'object') {
+          html += '<div class="obs-mem-strategies" title="Strategy contribution">';
+          var stratKeys = ['semantic', 'bm25', 'graph', 'temporal'];
+          for (var si = 0; si < stratKeys.length; si++) {
+            var sv = rs[stratKeys[si]];
+            if (sv && sv > 0) {
+              var barW = Math.max(8, Math.round(sv * 60));
+              html += '<span class="obs-mem-strat-bar" data-strat="' + stratKeys[si] +
+                      '" style="width:' + barW + 'px" title="' + stratKeys[si] + ': ' + sv.toFixed(3) + '"></span>';
+            }
+          }
+          html += '</div>';
+        }
+
+        html += '</div>'; /* end obs-mem-card */
+      }
+      html += '</div>'; /* end obs-section */
+    }
+
+    /* ---- Entities ---- */
+    var entities = payload.entities;
+    if (entities && entities.length) {
+      html += '<div class="obs-section">';
+      html += '<div class="obs-section-title">Matched Entities <span class="obs-count">' + entities.length + '</span></div>';
+      for (var e = 0; e < entities.length; e++) {
+        var ent = entities[e];
+        html += '<div class="obs-entity-card">';
+        if (ent.entity_type) {
+          html += '<span class="obs-entity-type">' + AgentDB.esc(ent.entity_type) + '</span>';
+        }
+        html += '<span class="font-bold">' + AgentDB.esc(ent.name || ent.id || '') + '</span>';
+        if (ent.description) {
+          html += ' <span class="text-muted">— ' + AgentDB.esc(AgentDB.truncate(ent.description, 60)) + '</span>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    /* ---- Identity ---- */
+    var identity = payload.identity;
+    if (identity && identity.length) {
+      html += '<div class="obs-section">';
+      html += '<div class="obs-section-title">Identity Memories <span class="obs-count">' + identity.length + '</span></div>';
+      for (var id = 0; id < identity.length; id++) {
+        var idm = identity[id];
+        html += '<div style="background:var(--bg);padding:6px 10px;border-radius:var(--radius);margin-bottom:4px;font-size:.82rem">';
+        html += AgentDB.esc(AgentDB.truncate(idm.content || idm.text || '', 100));
         html += '</div>';
       }
       html += '</div>';
@@ -441,11 +548,11 @@
     /* ---- Goals ---- */
     var goals = payload.goals;
     if (goals && goals.length) {
-      html += '<div style="margin-bottom:14px">';
-      html += '<div class="text-sm font-bold mb-8" style="text-transform:uppercase;letter-spacing:.04em;color:var(--text2)">MATCHED GOALS</div>';
+      html += '<div class="obs-section">';
+      html += '<div class="obs-section-title">Matched Goals <span class="obs-count">' + goals.length + '</span></div>';
       for (var g = 0; g < goals.length; g++) {
-        html += '<div style="background:var(--bg);padding:8px 10px;border-radius:var(--radius);margin-bottom:6px;font-size:.85rem">';
-        html += '  <span>' + AgentDB.esc(goals[g].description || goals[g].name || goals[g]) + '</span>';
+        html += '<div style="background:var(--bg);padding:6px 10px;border-radius:var(--radius);margin-bottom:4px;font-size:.82rem">';
+        html += '<span>' + AgentDB.esc(goals[g].description || goals[g].name || goals[g]) + '</span>';
         html += '</div>';
       }
       html += '</div>';
@@ -454,14 +561,14 @@
     /* ---- Skills ---- */
     var skills = payload.skills;
     if (skills && skills.length) {
-      html += '<div style="margin-bottom:14px">';
-      html += '<div class="text-sm font-bold mb-8" style="text-transform:uppercase;letter-spacing:.04em;color:var(--text2)">MATCHED SKILLS</div>';
+      html += '<div class="obs-section">';
+      html += '<div class="obs-section-title">Matched Skills <span class="obs-count">' + skills.length + '</span></div>';
       for (var s = 0; s < skills.length; s++) {
         var sk = skills[s];
-        html += '<div style="background:var(--bg);padding:8px 10px;border-radius:var(--radius);margin-bottom:6px;font-size:.85rem">';
-        html += '  <span class="font-bold">' + AgentDB.esc(sk.name || '') + '</span>';
+        html += '<div style="background:var(--bg);padding:6px 10px;border-radius:var(--radius);margin-bottom:4px;font-size:.82rem">';
+        html += '<span class="font-bold">' + AgentDB.esc(sk.name || '') + '</span>';
         if (sk.description) {
-          html += ' <span class="text-muted"> — ' + AgentDB.esc(sk.description) + '</span>';
+          html += ' <span class="text-muted"> — ' + AgentDB.esc(AgentDB.truncate(sk.description, 60)) + '</span>';
         }
         html += '</div>';
       }
@@ -485,8 +592,23 @@
       html += '<div><span class="font-bold">Snapshot:</span> <span class="text-mono">' +
               AgentDB.esc(String(data.snapshot_id).slice(0, 8)) + '</span></div>';
     }
+    if (data.llm_error) {
+      html += '<div style="color:#ef4444"><span class="font-bold">Error:</span> ' + AgentDB.esc(data.llm_error) + '</div>';
+    }
 
     html += '</div>';
+
+    /* ---- Collapsible: Full context payload sent to model ---- */
+    if (data.formatted_context) {
+      html += '<div class="obs-collapsible">';
+      html += '<button class="obs-collapsible-toggle" data-obs-toggle="ctx-payload">';
+      html += '<span class="obs-chevron">&#9654;</span> Context Payload Sent to Model';
+      html += '</button>';
+      html += '<div class="obs-collapsible-body" id="obs-ctx-payload">';
+      html += '<div class="obs-context-payload">' + AgentDB.esc(data.formatted_context) + '</div>';
+      html += '</div>';
+      html += '</div>';
+    }
 
     /* ---- Empty state fallback ---- */
     if (!html.trim()) {
@@ -494,7 +616,34 @@
     }
 
     ctx.innerHTML = html;
+
+    /* Wire up collapsible toggles */
+    var toggles = ctx.querySelectorAll('.obs-collapsible-toggle');
+    for (var ti = 0; ti < toggles.length; ti++) {
+      toggles[ti].addEventListener('click', function () {
+        var targetId = 'obs-' + this.getAttribute('data-obs-toggle');
+        var body = document.getElementById(targetId);
+        if (body) {
+          body.classList.toggle('open');
+          this.classList.toggle('open');
+        }
+      });
+    }
   };
+
+  /* helper: relative time from ISO string */
+  function _relativeTime(iso) {
+    try {
+      var d = new Date(iso);
+      var now = new Date();
+      var diff = (now - d) / 1000;
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+      return d.toLocaleDateString();
+    } catch (e) { return iso; }
+  }
 
   /* =============================================================
      V.toggleSidebar  —  Show / hide context sidebar

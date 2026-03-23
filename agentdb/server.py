@@ -1636,6 +1636,17 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     conn.commit()
     conn.close()
 
+    # Pre-warm embedding model in background thread to eliminate cold-start delay
+    import threading as _warmup_threading
+    def _warmup_embeddings():
+        try:
+            from agentdb.embeddings import get_model
+            get_model()
+            print("Embedding model pre-warmed")
+        except Exception as e:
+            print(f"Warning: Embedding warm-up failed: {e}")
+    _warmup_threading.Thread(target=_warmup_embeddings, daemon=True).start()
+
     # Start markdown file watcher if enabled
     try:
         conn = get_connection(db_path)

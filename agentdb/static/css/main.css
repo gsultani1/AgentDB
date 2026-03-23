@@ -683,6 +683,105 @@ label {
   overflow-y: auto;
 }
 
+/* -- Observability panel components -- */
+.obs-section { margin-bottom: 14px; }
+.obs-section-title {
+  font-size: .78rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--text2); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 6px;
+}
+.obs-section-title .obs-count {
+  font-size: .72rem; font-weight: 600; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 1px 6px; border-radius: 8px;
+}
+
+/* Strategy badges */
+.obs-strategies { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.obs-strategy-badge {
+  font-size: .7rem; font-weight: 600; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Enhanced memory card */
+.obs-mem-card {
+  background: var(--bg); padding: 8px 10px; border-radius: var(--radius);
+  margin-bottom: 6px; font-size: .82rem; border-left: 3px solid transparent;
+}
+.obs-mem-card[data-tier="short_term"] { border-left-color: #3b82f6; }
+.obs-mem-card[data-tier="midterm"]    { border-left-color: #8b5cf6; }
+.obs-mem-card[data-tier="long_term"]  { border-left-color: #10b981; }
+.obs-mem-header {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;
+}
+.obs-mem-score {
+  font-family: var(--font-mono); font-weight: 700; font-size: .78rem;
+  color: var(--accent);
+}
+.obs-mem-type {
+  font-size: .68rem; font-weight: 600; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 6px;
+  background: var(--bg2); color: var(--text2);
+}
+.obs-mem-meta {
+  font-size: .7rem; color: var(--text2); margin-left: auto;
+  display: flex; gap: 8px; align-items: center;
+}
+.obs-mem-content {
+  color: var(--text1); line-height: 1.4; font-size: .82rem;
+}
+.obs-mem-strategies {
+  display: flex; gap: 3px; margin-top: 4px;
+}
+.obs-mem-strat-bar {
+  height: 4px; border-radius: 2px; min-width: 8px;
+}
+.obs-mem-strat-bar[data-strat="semantic"] { background: #3b82f6; }
+.obs-mem-strat-bar[data-strat="bm25"]    { background: #f59e0b; }
+.obs-mem-strat-bar[data-strat="graph"]   { background: #8b5cf6; }
+.obs-mem-strat-bar[data-strat="temporal"]{ background: #10b981; }
+
+/* Entity card */
+.obs-entity-card {
+  background: var(--bg); padding: 6px 10px; border-radius: var(--radius);
+  margin-bottom: 4px; font-size: .82rem;
+  display: flex; align-items: center; gap: 6px;
+}
+.obs-entity-type {
+  font-size: .68rem; font-weight: 600; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 6px;
+  background: color-mix(in srgb, #8b5cf6 12%, transparent);
+  color: #8b5cf6;
+}
+
+/* Collapsible context payload */
+.obs-collapsible { margin-bottom: 14px; }
+.obs-collapsible-toggle {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: .78rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--text2);
+  background: none; border: none; padding: 0; width: 100%;
+  text-align: left;
+}
+.obs-collapsible-toggle:hover { color: var(--accent); }
+.obs-collapsible-toggle .obs-chevron {
+  transition: transform .2s; font-size: .7rem;
+}
+.obs-collapsible-toggle.open .obs-chevron { transform: rotate(90deg); }
+.obs-collapsible-body {
+  display: none; margin-top: 6px;
+}
+.obs-collapsible-body.open { display: block; }
+.obs-context-payload {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px;
+  font-family: var(--font-mono); font-size: .72rem; line-height: 1.5;
+  color: var(--text1); white-space: pre-wrap; word-break: break-word;
+  max-height: 400px; overflow-y: auto;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -782,6 +881,13 @@ label {
 }
 .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
 .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+.typing-status {
+  width: auto !important; height: auto !important;
+  background: none !important; border-radius: 0 !important;
+  animation: none !important;
+  font-size: .78rem; color: var(--text2); margin-left: 6px;
+  white-space: nowrap;
+}
 
 @keyframes typingBounce {
   0%, 60%, 100% { transform: translateY(0); }
