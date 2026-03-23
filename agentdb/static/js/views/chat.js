@@ -122,7 +122,8 @@
     var providerVal = provider ? provider.value : 'claude';
 
     return AgentDB.api('POST', '/api/agent/session/start', { provider: providerVal })
-      .then(function (data) {
+      .then(function (res) {
+        var data = res.data || res;
         if (data && data.session_id) {
           AgentDB.state.chatSessionId = data.session_id;
           AgentDB.state.chatHistory = [];
@@ -143,9 +144,9 @@
 
           AgentDB.toast('New session started', 'success');
         } else {
-          AgentDB.toast(data.error || 'Failed to start session', 'error');
+          AgentDB.toast(res.error || 'Failed to start session', 'error');
         }
-        return data;
+        return res;
       });
   };
 
@@ -190,19 +191,20 @@
       if (provider) payload.provider = provider.value;
 
       AgentDB.api('POST', '/api/agent/chat', payload)
-        .then(function (data) {
+        .then(function (res) {
           /* Remove typing indicator */
           if (typingEl && typingEl.parentNode) typingEl.parentNode.removeChild(typingEl);
 
-          if (data && data.status !== 'error' && data.reply) {
+          var d = res.data || {};
+          if (res.status === 'ok' && d.response) {
             /* Append assistant message */
-            V.appendMsg('assistant', data.reply);
-            AgentDB.state.chatHistory.push({ role: 'assistant', content: data.reply });
+            V.appendMsg('assistant', d.response);
+            AgentDB.state.chatHistory.push({ role: 'assistant', content: d.response });
 
             /* Update sidebar with context */
-            V.renderContext(data);
+            V.renderContext(d);
           } else {
-            var errMsg = (data && data.error) ? data.error : 'Unknown error from agent';
+            var errMsg = res.error || 'Unknown error from agent';
             V.appendMsg('error', errMsg);
           }
         })

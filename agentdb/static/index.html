@@ -7,8 +7,8 @@
   <link rel="stylesheet" href="/css/main.css">
 </head>
 <body>
-  <button class="hamburger" onclick="AgentDB.toggleSidebar()" aria-label="Menu">&#9776;</button>
-  <div class="sidebar-overlay" onclick="AgentDB.toggleSidebar()"></div>
+  <button class="hamburger" id="hamburger-btn" aria-label="Menu">&#9776;</button>
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
   <nav id="sidebar">
     <div class="logo">AgentDB</div>
@@ -23,9 +23,23 @@
     <a href="#import" data-view="import"><span class="icon">&#8679;</span><span class="label">Import</span></a>
     <a href="#audit" data-view="audit"><span class="icon">&#9776;</span><span class="label">Audit Log</span></a>
     <a href="#connect" data-view="connect"><span class="icon">&#9889;</span><span class="label">Connect</span></a>
+    <a href="#scheduler" data-view="scheduler"><span class="icon">&#9200;</span><span class="label">Scheduler</span></a>
     <a href="#mcp" data-view="mcp"><span class="icon">&#9881;</span><span class="label">MCP</span></a>
     <a href="#settings" data-view="settings"><span class="icon">&#9881;</span><span class="label">Settings</span></a>
   </nav>
+  <script>
+    document.getElementById('hamburger-btn').addEventListener('click', function() {
+      var sb = document.getElementById('sidebar');
+      var ov = document.getElementById('sidebar-overlay');
+      sb.classList.toggle('open');
+      ov.classList.toggle('active');
+      console.log('Hamburger clicked. sidebar.open:', sb.classList.contains('open'));
+    });
+    document.getElementById('sidebar-overlay').addEventListener('click', function() {
+      document.getElementById('sidebar').classList.remove('open');
+      this.classList.remove('active');
+    });
+  </script>
 
   <main>
     <div id="view-dashboard" class="view"></div>
@@ -39,6 +53,7 @@
     <div id="view-import" class="view"></div>
     <div id="view-audit" class="view"></div>
     <div id="view-connect" class="view"></div>
+    <div id="view-scheduler" class="view"></div>
     <div id="view-mcp" class="view"></div>
     <div id="view-settings" class="view"></div>
   </main>
@@ -57,6 +72,7 @@
   <script src="/js/views/import.js"></script>
   <script src="/js/views/audit.js"></script>
   <script src="/js/views/connect.js"></script>
+  <script src="/js/views/scheduler.js"></script>
   <script src="/js/views/mcp.js"></script>
   <script src="/js/views/settings.js"></script>
 </body>

@@ -190,7 +190,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", str(len(content)))
-        self.send_header("Cache-Control", "no-cache" if ext == '.html' else "public, max-age=3600")
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(content)
 
@@ -480,12 +480,19 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 result = run_consolidation_cycle(conn)
                 return _json_response(self, 200, data=result)
             if path == "/api/maintenance/sleep-cycle":
-                from agentdb.sleep import run_sleep_cycle
-                result = run_sleep_cycle(conn)
-                return _json_response(self, 200, data=result)
+                try:
+                    from agentdb.sleep import run_sleep_cycle
+                    result = run_sleep_cycle(conn)
+                    return _json_response(self, 200, data=result)
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
             if path == "/api/maintenance/integrity-check":
-                result = _run_integrity_check(conn)
-                return _json_response(self, 200, data=result)
+                try:
+                    from agentdb.scheduler import run_integrity_check
+                    result = run_integrity_check(conn)
+                    return _json_response(self, 200, data=result)
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
             if path == "/api/workspaces/scan":
                 # Scan all registered workspaces
                 from agentdb.workspace_scanner import scan_workspace

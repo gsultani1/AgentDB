@@ -329,11 +329,13 @@ AgentDB.navigate = function navigate(viewName) {
     history.replaceState(null, '', '#' + viewName);
   }
 
-  // Close mobile nav
-  var nav = document.getElementById('sidebar');
-  var overlay = document.querySelector('.sidebar-overlay');
-  if (nav) nav.classList.remove('open');
-  if (overlay) overlay.classList.remove('active');
+  // Close mobile nav only if navigating from a nav link click (not on initial load)
+  if (AgentDB._closeNavOnNavigate) {
+    var nav = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (nav) nav.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+  }
 
   // Call view loader
   if (AgentDB.views[viewName] && typeof AgentDB.views[viewName].load === 'function') {
@@ -419,31 +421,19 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // Wire nav link clicks
-  var navLinks = document.querySelectorAll('nav a[data-view][data-view]');
+  var navLinks = document.querySelectorAll('nav a[data-view]');
   navLinks.forEach(function (link) {
     link.addEventListener('click', function (e) {
       e.preventDefault();
+      AgentDB._closeNavOnNavigate = true;
       AgentDB.navigate(link.getAttribute('data-view'));
+      AgentDB._closeNavOnNavigate = false;
     });
   });
 
-  // Wire hamburger
-  var hamburger = document.querySelector('.hamburger');
-  if (hamburger) {
-    hamburger.addEventListener('click', function () {
-      AgentDB.toggleSidebar();
-    });
-  }
+  // Hamburger is wired via inline script in index.html
 
-  // Wire sidebar overlay click to close
-  var overlay = document.querySelector('.sidebar-overlay');
-  if (overlay) {
-    overlay.addEventListener('click', function () {
-      var nav = document.getElementById('sidebar');
-      if (nav) nav.classList.remove('open');
-      overlay.classList.remove('active');
-    });
-  }
+  // Overlay is wired via inline script in index.html
 
   // Wire nav toggle button (desktop collapse)
   var navToggle = document.querySelector('.nav-toggle');
