@@ -51,13 +51,15 @@
       html += '  <div class="chat-thread">';
       html += '    <div class="chat-messages" id="chat-messages"></div>';
       html += '    <div class="chat-input-area">';
-      html += '      <div id="chat-file-preview" style="display:none;padding:8px;flex-wrap:wrap;gap:8px;width:100%"></div>';
+      html += '      <div id="chat-file-preview" class="chat-file-preview"></div>';
       html += '      <input type="file" id="chat-file-input" multiple accept="image/*,.txt,.pdf,.json,.md,.csv" style="display:none">';
-      html += '      <textarea id="chat-input" rows="3" placeholder="Type a message..." ';
-      html += '        style="flex:1"></textarea>';
-      html += '      <button class="btn" id="chat-attach" title="Attach file" style="font-size:18px;padding:6px 10px;align-self:flex-end">&#128206;</button>';
-      html += '      <button class="btn btn-primary" id="chat-send" ';
-      html += '        style="align-self:flex-end">Send</button>';
+      html += '      <div class="chat-input-row">';
+      html += '        <textarea id="chat-input" rows="3" placeholder="Type a message..."></textarea>';
+      html += '        <button class="btn" id="chat-attach" title="Attach file" style="font-size:18px;padding:6px 10px;align-self:flex-end">';
+      html += '          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+      html += '        </button>';
+      html += '        <button class="btn btn-primary" id="chat-send" style="align-self:flex-end">Send</button>';
+      html += '      </div>';
       html += '    </div>';
       html += '  </div>';
 
@@ -193,14 +195,15 @@
   function renderFilePreview() {
     var wrap = document.getElementById('chat-file-preview');
     if (!wrap) return;
-    if (!pendingFiles.length) { wrap.style.display = 'none'; return; }
-    wrap.style.display = 'flex';
+    if (!pendingFiles.length) { wrap.innerHTML = ''; return; }
     wrap.innerHTML = pendingFiles.map(function(f, i) {
       var isImg = f.type.startsWith('image/');
-      return '<div style="display:flex;align-items:center;gap:4px;background:var(--bg3);padding:4px 8px;border-radius:var(--radius);font-size:12px">' +
-        (isImg ? '<img src="data:' + f.type + ';base64,' + f.data_b64 + '" style="width:32px;height:32px;object-fit:cover;border-radius:4px">' : '<span>&#128196;</span>') +
+      var preview = isImg
+        ? '<img src="data:' + f.type + ';base64,' + f.data_b64 + '" style="width:32px;height:32px;object-fit:cover;border-radius:4px">'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+      return '<div class="chat-preview-chip">' + preview +
         '<span>' + AgentDB.esc(f.name) + '</span>' +
-        '<button onclick="AgentDB.views.chat.removeFile(' + i + ')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">&times;</button></div>';
+        '<button onclick="AgentDB.views.chat.removeFile(' + i + ')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1">&times;</button></div>';
     }).join('');
   }
 
@@ -251,23 +254,35 @@
 
       /* Build multi-part content if files attached */
       if (uploadedFiles.length) {
-        var contentParts = [];
+        var apiParts = [];    // full content — sent to LLM
+        var displayParts = []; // compact chips — shown in chat bubble
+
         for (var i = 0; i < uploadedFiles.length; i++) {
           var f = uploadedFiles[i];
           if (f.type.startsWith('image/')) {
-            contentParts.push({
+            apiParts.push({
+              type: "image",
+              source: { type: "base64", media_type: f.type, data: f.data_b64 }
+            });
+            displayParts.push({
               type: "image",
               source: { type: "base64", media_type: f.type, data: f.data_b64 }
             });
           } else {
-            contentParts.push({ type: "text", text: "[File: " + f.name + "]\n" + atob(f.data_b64) });
+            // Decode file for the API so the LLM can read it
+            var decoded = '';
+            try { decoded = atob(f.data_b64); } catch (_) { decoded = '[binary file]'; }
+            apiParts.push({ type: "text", text: "[File: " + f.name + "]\n" + decoded });
+            // Display only shows a compact attachment chip
+            displayParts.push({ type: "file", name: f.name, size: decoded.length });
           }
         }
         if (message) {
-          contentParts.push({ type: "text", text: message });
+          apiParts.push({ type: "text", text: message });
+          displayParts.push({ type: "text", text: message });
         }
-        historyContent = contentParts;
-        displayContent = contentParts;
+        historyContent = apiParts;
+        displayContent = displayParts;
       }
 
       /* Append user message to UI and state */
@@ -331,6 +346,13 @@
       if (Array.isArray(content)) {
         var htmlParts = content.map(function(part) {
           if (part.type === 'image') return '<img src="data:' + part.source.media_type + ';base64,' + part.source.data + '" style="max-width:200px;border-radius:8px;margin:4px 0">';
+          if (part.type === 'file') {
+            var sizeStr = part.size > 1024 ? Math.round(part.size / 1024) + ' KB' : part.size + ' B';
+            return '<div class="chat-file-chip">' +
+              '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+              '<span>' + AgentDB.esc(part.name) + '</span>' +
+              '<span style="opacity:.7;font-size:.75rem">' + sizeStr + '</span></div>';
+          }
           if (part.type === 'text') return '<p>' + AgentDB.esc(part.text) + '</p>';
           return '';
         }).join('');
