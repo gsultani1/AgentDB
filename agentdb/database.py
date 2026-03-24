@@ -88,6 +88,22 @@ DEFAULT_CONFIG = {
     "mcp_transport": "sse",
     "mcp_port": "8421",
     "db_console_write_enabled": "false",
+    # v1.5 additions
+    "active_provider_id": "",
+    "reranker_candidates": "20",
+    "cache_ttl_hours": "24",
+    "max_file_context_tokens": "2000",
+    "db_query_timeout_seconds": "5",
+    "skill_timeout_seconds": "30",
+    "skill_max_memory_mb": "256",
+    "skill_allow_network": "false",
+    "knowledge_git_repo": "",
+    "knowledge_git_branch": "main",
+    "knowledge_git_auto_commit": "false",
+    "last_git_sync_commit": "",
+    "last_git_sync_at": "",
+    "custom_alert_rules": "[]",
+    "theme_preference": "auto",
 }
 
 
@@ -276,7 +292,12 @@ def verify_schema(conn):
         "goals", "tags", "tag_assignments", "workspaces", "workspace_files",
         "sessions", "meta_config", "contradictions", "audit_log",
         "feedback", "context_snapshots", "notification_queue", "scheduled_tasks",
-        "views", "embeddings_cache",
+        "views", "embeddings_cache", "llm_providers",
+        # v1.5 tables
+        "conversation_threads", "pinned_memories", "file_attachments",
+        "skill_executions", "channel_configs", "channel_messages",
+        "autonomous_tasks", "task_steps", "task_actions",
+        "file_access_grants", "shell_command_log",
     ]
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")

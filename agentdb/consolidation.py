@@ -19,7 +19,6 @@ from agentdb.embeddings import (
     generate_embedding,
     embedding_to_blob,
     blob_to_embedding,
-    cosine_similarity,
     semantic_search,
 )
 
@@ -414,7 +413,11 @@ def _apply_annotation(conn, feedback_id, target_id, target_table):
 
 def _cluster_entries(entries, threshold):
     """
-    Cluster entries by embedding cosine similarity.
+    Cluster entries by embedding cosine similarity using vectorized numpy ops.
+
+    Assembles all embeddings into an N×D matrix, computes the full N×N
+    similarity matrix via a single normalized dot-product, then applies
+    greedy single-linkage clustering against the threshold.
 
     Args:
         entries: list of dicts with 'id', 'embedding', 'content' keys.
@@ -423,29 +426,45 @@ def _cluster_entries(entries, threshold):
     Returns:
         list of lists of entry dicts.
     """
+    import numpy as np
+
     if not entries:
         return []
 
+    n = len(entries)
+    if n == 1:
+        return [entries]
+
+    # Assemble N×D embedding matrix from blobs
+    emb_list = [blob_to_embedding(e["embedding"]) for e in entries]
+    matrix = np.stack(emb_list)  # (N, 384)
+
+    # Normalize rows for cosine similarity via dot product
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    matrix_normed = matrix / norms
+
+    # Full N×N similarity matrix in one matmul
+    sim_matrix = matrix_normed @ matrix_normed.T  # (N, N)
+
+    # Greedy single-linkage clustering on precomputed similarity
     assigned = set()
     clusters = []
 
-    for i, entry_a in enumerate(entries):
-        if entry_a["id"] in assigned:
+    for i in range(n):
+        if i in assigned:
             continue
-        cluster = [entry_a]
-        assigned.add(entry_a["id"])
-        emb_a = blob_to_embedding(entry_a["embedding"])
+        cluster_indices = [i]
+        assigned.add(i)
 
-        for j, entry_b in enumerate(entries):
-            if i == j or entry_b["id"] in assigned:
+        for j in range(i + 1, n):
+            if j in assigned:
                 continue
-            emb_b = blob_to_embedding(entry_b["embedding"])
-            sim = cosine_similarity(emb_a, emb_b)
-            if sim >= threshold:
-                cluster.append(entry_b)
-                assigned.add(entry_b["id"])
+            if sim_matrix[i, j] >= threshold:
+                cluster_indices.append(j)
+                assigned.add(j)
 
-        clusters.append(cluster)
+        clusters.append([entries[idx] for idx in cluster_indices])
 
     return clusters
 

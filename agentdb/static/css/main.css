@@ -34,6 +34,18 @@
   --sidebar-collapsed-w: 56px;
   --radius: 8px;
   --transition: 0.2s ease;
+  /* v1.5 semantic aliases (map to existing tokens) */
+  --bg-base: var(--bg);
+  --bg-surface: var(--bg2);
+  --bg-sunken: var(--bg3);
+  --bg-hover: #E8E5E0;
+  --text-primary: var(--text);
+  --text-secondary: var(--text2);
+  --accent-subtle: var(--accentLight);
+  --success: var(--green);
+  --warning: var(--yellow);
+  --danger: var(--red);
+  --info: var(--blue);
 }
 
 /* ----- Dark Theme (OS preference or [data-theme="dark"]) ----- */
@@ -1491,3 +1503,149 @@ hr {
 .overflow-auto { overflow: auto; }
 .cursor-pointer { cursor: pointer; }
 .truncate      { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ============================================================
+   v1.5/v1.6 — Sub-tabs, cards, task/thread/channel components
+   ============================================================ */
+
+/* Sub-tabs (pill-style within content header) */
+.sub-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg3);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  width: fit-content;
+}
+.sub-tab {
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text2);
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.sub-tab:hover { background: var(--bg); color: var(--text); }
+.sub-tab.active { background: var(--bg); color: var(--accent); box-shadow: 0 1px 3px var(--shadow); }
+
+/* Card list layout */
+.card-list { display: flex; flex-direction: column; gap: 12px; }
+.card-list .card { padding: 16px; }
+
+/* Card header / meta / actions patterns */
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.82rem;
+  color: var(--text2);
+  margin-bottom: 8px;
+}
+.card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Badge variants */
+.badge-green { background: var(--green); color: #fff; }
+.badge-red { background: var(--red); color: #fff; }
+.badge-yellow { background: var(--yellow); color: #fff; }
+.badge-blue { background: var(--accent); color: #fff; }
+.badge-gray { background: var(--bg3); color: var(--text2); }
+
+/* Thread messages */
+.thread-messages { display: flex; flex-direction: column; gap: 8px; }
+.thread-msg {
+  padding: 10px 14px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
+  font-size: 0.9rem;
+}
+.thread-msg .badge { font-size: 0.7rem; margin-right: 6px; }
+
+/* Form layout helpers */
+.form-group { margin-bottom: 12px; }
+.form-group label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 4px;
+}
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+.form-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+.form-row { display: flex; gap: 16px; }
+.form-row .form-group { flex: 1; }
+.form-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+/* Small button variant */
+.btn-sm { padding: 4px 10px; font-size: 0.78rem; }
+.btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+.btn-danger:hover { opacity: 0.9; }
+
+/* Data tables for task steps/actions */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-top: 8px;
+}
+.data-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--bg3);
+  color: var(--text2);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.data-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.data-table tr:hover td { background: var(--bg); }
+
+/* View header with title + action button */
+.view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.view-header h2 { font-size: 1.25rem; font-weight: 700; }
+
+/* Empty / loading states */
+.loading, .empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--text2);
+  font-style: italic;
+}
+.text-secondary { color: var(--text2); font-size: 0.9rem; }

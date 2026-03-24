@@ -54,6 +54,8 @@ _task_scheduler = None
 _mcp_thread = None
 _mcp_port = None
 _mcp_started = False
+_mcp_failure_count = 0
+_mcp_last_restart = None
 
 
 def _get_conn():
@@ -346,6 +348,29 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 crud.delete_llm_provider(conn, m["id"])
                 return _json_response(self, 200, data={"deleted": m["id"]})
+
+            # ── v1.5/v1.6 DELETE routes ──
+            m = _match("/api/threads/{id}", path)
+            if m:
+                crud.delete_conversation_thread(conn, m["id"])
+                return _json_response(self, 200, data={"deleted": m["id"]})
+            m = _match("/api/memories/pinned/{id}", path)
+            if m:
+                crud.unpin_memory(conn, m["id"])
+                return _json_response(self, 200, data={"unpinned": m["id"]})
+            m = _match("/api/channels/{id}", path)
+            if m:
+                crud.delete_channel_config(conn, m["id"])
+                return _json_response(self, 200, data={"deleted": m["id"]})
+            m = _match("/api/tasks/{id}", path)
+            if m:
+                crud.delete_autonomous_task(conn, m["id"])
+                return _json_response(self, 200, data={"deleted": m["id"]})
+            m = _match("/api/file-access-grants/{id}", path)
+            if m:
+                crud.delete_file_access_grant(conn, m["id"])
+                return _json_response(self, 200, data={"deleted": m["id"]})
+
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
             conn.close()
@@ -363,6 +388,14 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/"):
             if not _check_operator_auth(self):
                 return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
+
+        # Record API activity for idle detection
+        if path.startswith("/api/agent/") or path == "/api/agent/chat":
+            try:
+                from agentdb.sleep import record_agent_api_call
+                record_agent_api_call()
+            except Exception:
+                pass
 
         conn = _get_conn()
         try:
@@ -413,6 +446,8 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     "port": _mcp_port or int(crud.get_config_value(conn, "mcp_port", "8421")),
                     "running": thread_alive,
                     "url": f"http://127.0.0.1:{_mcp_port}/sse" if thread_alive and _mcp_port else None,
+                    "failure_count": _mcp_failure_count,
+                    "last_restart": _mcp_last_restart,
                     "tools": ["retrieve_context_tool", "ingest_memory", "search_memories",
                                "list_memories", "create_entity", "list_entities",
                                "check_goals", "get_health", "run_consolidation"],
@@ -465,6 +500,114 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 return self._op_scheduled_task_detail(conn, m["id"])
 
+            # ── v1.5/v1.6 GET routes ──
+            if path == "/api/threads":
+                return self._op_threads_list(conn, qp)
+            m = _match("/api/threads/{id}", path)
+            if m:
+                return self._op_thread_detail(conn, m["id"])
+            m = _match("/api/threads/{id}/messages", path)
+            if m:
+                limit = int(qp.get("limit", [100])[0])
+                offset = int(qp.get("offset", [0])[0])
+                msgs = crud.get_thread_messages(conn, m["id"], limit=limit, offset=offset)
+                return _json_response(self, 200, data=msgs)
+            if path == "/api/memories/pinned":
+                agent_id = qp.get("agent_id", [None])[0]
+                pins = crud.list_pinned_memories(conn, agent_id=agent_id)
+                return _json_response(self, 200, data=pins)
+            if path == "/api/attachments":
+                session_id = qp.get("session_id", [None])[0]
+                limit = int(qp.get("limit", [50])[0])
+                attachments = crud.list_file_attachments(conn, session_id=session_id, limit=limit)
+                return _json_response(self, 200, data=attachments)
+            m = _match("/api/attachments/{id}", path)
+            if m:
+                att = crud.get_file_attachment(conn, m["id"])
+                if att:
+                    att.pop("extracted_embedding", None)
+                    return _json_response(self, 200, data=att)
+                return _json_response(self, 404, error="Attachment not found")
+            if path == "/api/skill-executions":
+                skill_id = qp.get("skill_id", [None])[0]
+                limit = int(qp.get("limit", [50])[0])
+                execs = crud.list_skill_executions(conn, skill_id=skill_id, limit=limit)
+                return _json_response(self, 200, data=execs)
+            m = _match("/api/skill-executions/{id}", path)
+            if m:
+                ex = crud.get_skill_execution(conn, m["id"])
+                if ex:
+                    return _json_response(self, 200, data=ex)
+                return _json_response(self, 404, error="Skill execution not found")
+            if path == "/api/channels":
+                channels = crud.list_channel_configs(conn)
+                return _json_response(self, 200, data=channels)
+            m = _match("/api/channels/{id}", path)
+            if m:
+                ch = crud.get_channel_config(conn, m["id"])
+                if ch:
+                    # Mask credentials
+                    if ch.get("credentials"):
+                        ch["credentials"] = "****"
+                    return _json_response(self, 200, data=ch)
+                return _json_response(self, 404, error="Channel not found")
+            m = _match("/api/channels/{id}/messages", path)
+            if m:
+                limit = int(qp.get("limit", [50])[0])
+                direction = qp.get("direction", [None])[0]
+                msgs = crud.list_channel_messages(conn, m["id"], limit=limit, direction=direction)
+                return _json_response(self, 200, data=msgs)
+            if path == "/api/tasks":
+                status = qp.get("status", [None])[0]
+                limit = int(qp.get("limit", [50])[0])
+                tasks = crud.list_autonomous_tasks(conn, status=status, limit=limit)
+                return _json_response(self, 200, data=tasks)
+            m = _match("/api/tasks/{id}", path)
+            if m:
+                task = crud.get_autonomous_task(conn, m["id"])
+                if task:
+                    return _json_response(self, 200, data=task)
+                return _json_response(self, 404, error="Task not found")
+            m = _match("/api/tasks/{id}/steps", path)
+            if m:
+                steps = crud.list_task_steps(conn, m["id"])
+                return _json_response(self, 200, data=steps)
+            m = _match("/api/tasks/{id}/actions", path)
+            if m:
+                actions = crud.list_task_actions(conn, m["id"])
+                return _json_response(self, 200, data=actions)
+            if path == "/api/file-access-grants":
+                agent_id = qp.get("agent_id", [None])[0]
+                grants = crud.list_file_access_grants(conn, agent_id=agent_id)
+                return _json_response(self, 200, data=grants)
+            if path == "/api/shell-log":
+                agent_id = qp.get("agent_id", [None])[0]
+                limit = int(qp.get("limit", [50])[0])
+                logs = crud.list_shell_command_log(conn, agent_id=agent_id, limit=limit)
+                return _json_response(self, 200, data=logs)
+            if path == "/api/db-query/schema":
+                tables = conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL ORDER BY name"
+                ).fetchall()
+                schema = [{"name": t["name"], "sql": t["sql"]} for t in tables]
+                return _json_response(self, 200, data=schema)
+            if path == "/api/config/alert-rules":
+                rules_json = crud.get_config_value(conn, "custom_alert_rules", "[]")
+                try:
+                    rules = json.loads(rules_json)
+                except (json.JSONDecodeError, TypeError):
+                    rules = []
+                return _json_response(self, 200, data=rules)
+            if path == "/api/git-sync/status":
+                from agentdb.git_sync import get_sync_status
+                return _json_response(self, 200, data=get_sync_status(conn))
+            if path == "/api/idle/status":
+                from agentdb.sleep import is_idle, idle_since
+                return _json_response(self, 200, data={
+                    "is_idle": is_idle(),
+                    "idle_since": idle_since(),
+                })
+
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
             conn.close()
@@ -481,6 +624,14 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/"):
             if not _check_operator_auth(self):
                 return _json_response(self, 401, error="Operator authentication required. Set Authorization: Bearer <key>.")
+
+        # Record API activity for idle detection
+        if path.startswith("/api/agent/"):
+            try:
+                from agentdb.sleep import record_agent_api_call
+                record_agent_api_call()
+            except Exception:
+                pass
 
         conn = _get_conn()
         try:
@@ -691,6 +842,253 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 result = run_scheduled_task_now(conn, m["id"])
                 return _json_response(self, 200, data=result)
 
+            # ── v1.5/v1.6 POST routes ──
+            if path == "/api/threads":
+                name = body.get("name", "")
+                if not name:
+                    return _json_response(self, 400, error="'name' is required")
+                tid = crud.create_conversation_thread(
+                    conn, name,
+                    agent_id=body.get("agent_id", "default"),
+                    summary=body.get("description") or body.get("summary"),
+                    metadata=body.get("metadata"),
+                )
+                return _json_response(self, 201, data={"id": tid})
+
+            if path == "/api/memories/pin":
+                memory_id = body.get("memory_id", "")
+                memory_table = body.get("memory_table", "")
+                if not memory_id or not memory_table:
+                    return _json_response(self, 400, error="'memory_id' and 'memory_table' are required")
+                pin_id = crud.pin_memory(
+                    conn, memory_id, memory_table,
+                    agent_id=body.get("agent_id", "default"),
+                    priority=body.get("priority", 0),
+                    reason=body.get("reason"),
+                )
+                return _json_response(self, 201, data={"id": pin_id})
+
+            if path == "/api/memories/export":
+                fmt = body.get("format", "json")
+                filters = body.get("filters", {})
+                data = crud.export_memories(conn, **filters)
+                if fmt == "csv":
+                    import csv
+                    import io
+                    output = io.StringIO()
+                    if data:
+                        writer = csv.DictWriter(output, fieldnames=data[0].keys())
+                        writer.writeheader()
+                        writer.writerows(data)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/csv")
+                    self.send_header("Content-Disposition", "attachment; filename=memories_export.csv")
+                    self.end_headers()
+                    self.wfile.write(output.getvalue().encode("utf-8"))
+                    return
+                return _json_response(self, 200, data=data)
+
+            if path == "/api/memories/batch/pin":
+                ids = body.get("ids", [])
+                table = body.get("memory_table", "")
+                agent_id = body.get("agent_id", "default")
+                if not ids or not table:
+                    return _json_response(self, 400, error="'ids' and 'memory_table' are required")
+                result = crud.batch_pin_memories(conn, ids, table, agent_id=agent_id)
+                return _json_response(self, 200, data=result)
+
+            if path == "/api/memories/batch/tag":
+                ids = body.get("ids", [])
+                table = body.get("target_table", "")
+                tag_name = body.get("tag_name", "")
+                if not ids or not table or not tag_name:
+                    return _json_response(self, 400, error="'ids', 'target_table', and 'tag_name' are required")
+                result = crud.batch_tag_memories(conn, ids, table, tag_name)
+                return _json_response(self, 200, data=result)
+
+            if path == "/api/memories/batch/delete":
+                ids = body.get("ids", [])
+                table = body.get("memory_table", "")
+                if not ids or not table:
+                    return _json_response(self, 400, error="'ids' and 'memory_table' are required")
+                result = crud.batch_delete_memories(conn, ids, table)
+                return _json_response(self, 200, data=result)
+
+            if path == "/api/memories/batch/promote":
+                ids = body.get("ids", [])
+                source_table = body.get("source_table", "")
+                if not ids or not source_table:
+                    return _json_response(self, 400, error="'ids' and 'source_table' are required")
+                result = crud.batch_promote_memories(conn, ids, source_table)
+                return _json_response(self, 200, data=result)
+
+            if path == "/api/chat/file":
+                filename = body.get("filename", "")
+                data_b64 = body.get("data", "")
+                session_id = body.get("session_id")
+                thread_id = body.get("thread_id")
+                agent_id = body.get("agent_id", "default")
+                if not data_b64 or not filename:
+                    return _json_response(self, 400, error="'filename' and 'data' (base64) are required")
+                import base64 as _b64
+                try:
+                    file_bytes = _b64.b64decode(data_b64)
+                except Exception:
+                    return _json_response(self, 400, error="Invalid base64 data")
+                from agentdb.file_processor import process_file_from_content
+                result = process_file_from_content(
+                    conn, file_bytes, filename,
+                    session_id=session_id, thread_id=thread_id, agent_id=agent_id,
+                )
+                return _json_response(self, 201, data=result)
+
+            if path == "/api/channels":
+                channel_type = body.get("channel_type", "")
+                name = body.get("name", "")
+                if not channel_type or not name:
+                    return _json_response(self, 400, error="'channel_type' and 'name' are required")
+                cid = crud.create_channel_config(
+                    conn, channel_type, name,
+                    credentials=body.get("credentials"),
+                    settings=body.get("settings"),
+                    agent_id=body.get("agent_id", "default"),
+                )
+                return _json_response(self, 201, data={"id": cid})
+
+            m = _match("/api/channels/{id}/messages", path)
+            if m:
+                direction = body.get("direction", "outbound")
+                content = body.get("content", "")
+                if not content:
+                    return _json_response(self, 400, error="'content' is required")
+                mid = crud.create_channel_message(
+                    conn, m["id"], direction, content,
+                    external_id=body.get("external_id"),
+                    sender=body.get("sender"),
+                    recipient=body.get("recipient"),
+                    metadata=body.get("metadata"),
+                )
+                return _json_response(self, 201, data={"id": mid})
+
+            if path == "/api/tasks":
+                name = body.get("name", "")
+                goal = body.get("goal", "")
+                if not name or not goal:
+                    return _json_response(self, 400, error="'name' and 'goal' are required")
+                tid = crud.create_autonomous_task(
+                    conn, name, goal,
+                    agent_id=body.get("agent_id", "default"),
+                    constraints=body.get("constraints"),
+                    max_steps=body.get("max_steps", 20),
+                    require_approval=body.get("require_approval", True),
+                )
+                return _json_response(self, 201, data={"id": tid})
+
+            m = _match("/api/tasks/{id}/start", path)
+            if m:
+                task = crud.get_autonomous_task(conn, m["id"])
+                if not task:
+                    return _json_response(self, 404, error="Task not found")
+                crud.update_autonomous_task(conn, m["id"], status="running")
+                return _json_response(self, 200, data={"id": m["id"], "status": "running"})
+
+            m = _match("/api/tasks/{id}/pause", path)
+            if m:
+                task = crud.get_autonomous_task(conn, m["id"])
+                if not task:
+                    return _json_response(self, 404, error="Task not found")
+                crud.update_autonomous_task(conn, m["id"], status="paused")
+                return _json_response(self, 200, data={"id": m["id"], "status": "paused"})
+
+            m = _match("/api/tasks/{id}/cancel", path)
+            if m:
+                task = crud.get_autonomous_task(conn, m["id"])
+                if not task:
+                    return _json_response(self, 404, error="Task not found")
+                crud.update_autonomous_task(conn, m["id"], status="cancelled")
+                return _json_response(self, 200, data={"id": m["id"], "status": "cancelled"})
+
+            m = _match("/api/tasks/{id}/approve", path)
+            if m:
+                step_id = body.get("step_id", "")
+                if not step_id:
+                    return _json_response(self, 400, error="'step_id' is required")
+                approved = body.get("approved", True)
+                crud.update_task_step(
+                    conn, step_id,
+                    status="approved" if approved else "rejected",
+                    output=body.get("feedback"),
+                )
+                return _json_response(self, 200, data={"step_id": step_id, "approved": approved})
+
+            if path == "/api/file-access-grants":
+                agent_id = body.get("agent_id", "")
+                path_pattern = body.get("path_pattern", "")
+                if not agent_id or not path_pattern:
+                    return _json_response(self, 400, error="'agent_id' and 'path_pattern' are required")
+                gid = crud.create_file_access_grant(
+                    conn, agent_id, path_pattern,
+                    permission=body.get("permission", "read"),
+                    granted_by=body.get("granted_by", "operator"),
+                    expires_at=body.get("expires_at"),
+                )
+                return _json_response(self, 201, data={"id": gid})
+
+            if path == "/api/maintenance/git-sync":
+                from agentdb.git_sync import sync_from_git
+                result = sync_from_git(conn)
+                return _json_response(self, 200, data=result)
+
+            m = _match("/api/providers/{id}/test", path)
+            if m:
+                provider = crud.get_llm_provider(conn, m["id"])
+                if not provider:
+                    return _json_response(self, 404, error="Provider not found")
+                from agentdb.middleware import get_adapter
+                adapter = get_adapter(provider.get("provider_type", "claude"))
+                try:
+                    test_config = {
+                        "llm_api_key": provider.get("api_key", ""),
+                        "llm_model": provider.get("model", ""),
+                        "llm_endpoint": provider.get("endpoint", ""),
+                    }
+                    messages = [{"role": "user", "content": "Say 'hello' in one word."}]
+                    response = adapter.call_provider(messages, "You are a test.", test_config)
+                    crud.update_llm_provider(conn, m["id"], last_test_at=datetime.utcnow().isoformat())
+                    return _json_response(self, 200, data={"success": True, "response": response[:200]})
+                except Exception as e:
+                    return _json_response(self, 200, data={"success": False, "error": str(e)})
+
+            if path == "/api/providers/ollama/discover":
+                endpoint = body.get("endpoint", "http://localhost:11434")
+                try:
+                    import urllib.request
+                    req = urllib.request.Request(f"{endpoint}/api/tags", method="GET")
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                    models = [m.get("name", "") for m in data.get("models", [])]
+                    return _json_response(self, 200, data={"models": models, "endpoint": endpoint})
+                except Exception as e:
+                    return _json_response(self, 200, data={"models": [], "error": str(e)})
+
+            if path == "/api/config/alert-rules":
+                rules = body.get("rules", [])
+                crud.set_config(conn, "custom_alert_rules", json.dumps(rules))
+                return _json_response(self, 200, data={"saved": len(rules)})
+
+            if path == "/api/skill-executions":
+                skill_id = body.get("skill_id", "")
+                if not skill_id:
+                    return _json_response(self, 400, error="'skill_id' is required")
+                from agentdb.skill_executor import execute_skill
+                result = execute_skill(
+                    conn, skill_id,
+                    inputs=body.get("inputs", {}),
+                    agent_id=body.get("agent_id", "default"),
+                    session_id=body.get("session_id"),
+                )
+                return _json_response(self, 200, data=result)
+
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
             conn.close()
@@ -750,6 +1148,39 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                         updates[key] = body[key]
                 crud.update_llm_provider(conn, m["id"], **updates)
                 return _json_response(self, 200, data={"updated": m["id"]})
+
+            # ── v1.5/v1.6 PUT routes ──
+            m = _match("/api/threads/{id}", path)
+            if m:
+                updates = {}
+                for key in ("name", "description", "status", "metadata"):
+                    if key in body:
+                        updates[key] = body[key]
+                if not updates:
+                    return _json_response(self, 400, error="No valid fields to update")
+                crud.update_conversation_thread(conn, m["id"], **updates)
+                return _json_response(self, 200, data={"id": m["id"], "updated": True})
+            m = _match("/api/memories/pinned/{id}/priority", path)
+            if m:
+                priority = body.get("priority", 0)
+                crud.update_pin_priority(conn, m["id"], priority)
+                return _json_response(self, 200, data={"id": m["id"], "priority": priority})
+            m = _match("/api/channels/{id}", path)
+            if m:
+                updates = {}
+                for key in ("name", "credentials", "settings", "enabled"):
+                    if key in body:
+                        updates[key] = body[key]
+                crud.update_channel_config(conn, m["id"], **updates)
+                return _json_response(self, 200, data={"id": m["id"], "updated": True})
+            m = _match("/api/tasks/{id}", path)
+            if m:
+                updates = {}
+                for key in ("name", "goal", "status", "constraints", "max_steps", "require_approval"):
+                    if key in body:
+                        updates[key] = body[key]
+                crud.update_autonomous_task(conn, m["id"], **updates)
+                return _json_response(self, 200, data={"id": m["id"], "updated": True})
 
             _json_response(self, 404, error=f"Not found: {path}")
         finally:
@@ -991,8 +1422,11 @@ class AgentDBHandler(BaseHTTPRequestHandler):
 
     def _agent_session_start(self, conn, body):
         workspace_id = body.get("workspace_id")
-        sid = crud.create_session(conn, workspace_id=workspace_id)
-        _json_response(self, 201, data={"session_id": sid})
+        thread_id = body.get("thread_id")
+        provider_id = body.get("provider_id")
+        sid = crud.create_session(conn, workspace_id=workspace_id,
+                                  thread_id=thread_id, provider_id=provider_id)
+        _json_response(self, 201, data={"session_id": sid, "thread_id": thread_id})
 
     def _agent_session_end(self, conn, body):
         session_id = body.get("session_id", "")
@@ -1045,6 +1479,13 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             ("views", "views"),
             ("embeddings_cache", "embeddings_cache"),
             ("scheduled_tasks", "scheduled_tasks"),
+            ("conversation_threads", "conversation_threads"),
+            ("pinned_memories", "pinned_memories"),
+            ("file_attachments", "file_attachments"),
+            ("skill_executions", "skill_executions"),
+            ("channel_configs", "channel_configs"),
+            ("channel_messages", "channel_messages"),
+            ("autonomous_tasks", "autonomous_tasks"),
         ]
         stats = {}
         for table, key in tables:
@@ -1506,6 +1947,23 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             "last_result": _task_scheduler.last_result if _task_scheduler else None,
         })
 
+    # ══════════════════════════════════════════════════════════════
+    # v1.5/v1.6 OPERATOR API HANDLERS
+    # ══════════════════════════════════════════════════════════════
+
+    def _op_threads_list(self, conn, qp):
+        agent_id = qp.get("agent_id", [None])[0]
+        status = qp.get("status", [None])[0]
+        limit = int(qp.get("limit", [50])[0])
+        threads = crud.list_conversation_threads(conn, agent_id=agent_id, status=status, limit=limit)
+        _json_response(self, 200, data=threads)
+
+    def _op_thread_detail(self, conn, thread_id):
+        thread = crud.get_conversation_thread(conn, thread_id)
+        if not thread:
+            return _json_response(self, 404, error="Thread not found")
+        _json_response(self, 200, data=thread)
+
 
 def _run_integrity_check(conn):
     """Scan polymorphic reference columns for orphaned IDs."""
@@ -1608,6 +2066,54 @@ def _ensure_providers_schema(conn):
             conn.commit()
 
 
+def _ensure_v15_schema(conn):
+    """Create v1.5/v1.6 tables on existing databases that lack them.
+    Uses the canonical DDL from schema.py to ensure column parity with CRUD layer."""
+    from agentdb.schema import (
+        CREATE_CONVERSATION_THREADS, CREATE_PINNED_MEMORIES,
+        CREATE_FILE_ATTACHMENTS, CREATE_CHANNEL_CONFIGS,
+        CREATE_CHANNEL_MESSAGES, CREATE_AUTONOMOUS_TASKS,
+        CREATE_TASK_STEPS, CREATE_TASK_ACTIONS,
+        CREATE_FILE_ACCESS_GRANTS, CREATE_SHELL_COMMAND_LOG,
+    )
+    # Add missing columns to existing tables (safe: ALTER ADD is a no-op if column exists)
+    alter_statements = [
+        "ALTER TABLE sessions ADD COLUMN thread_id TEXT",
+        "ALTER TABLE sessions ADD COLUMN provider_id TEXT",
+        "ALTER TABLE agents ADD COLUMN default_provider_id TEXT",
+    ]
+    for stmt in alter_statements:
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass  # Column already exists
+    conn.commit()
+
+    v15_tables = {
+        "conversation_threads": CREATE_CONVERSATION_THREADS,
+        "pinned_memories": CREATE_PINNED_MEMORIES,
+        "file_attachments": CREATE_FILE_ATTACHMENTS,
+        "channel_configs": CREATE_CHANNEL_CONFIGS,
+        "channel_messages": CREATE_CHANNEL_MESSAGES,
+        "autonomous_tasks": CREATE_AUTONOMOUS_TASKS,
+        "task_steps": CREATE_TASK_STEPS,
+        "task_actions": CREATE_TASK_ACTIONS,
+        "file_access_grants": CREATE_FILE_ACCESS_GRANTS,
+        "shell_command_log": CREATE_SHELL_COMMAND_LOG,
+    }
+    existing = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    created = []
+    for table_name, ddl in v15_tables.items():
+        if table_name not in existing:
+            conn.execute(ddl)
+            created.append(table_name)
+    if created:
+        conn.commit()
+        print(f"v1.5 schema migration: created {len(created)} tables: {', '.join(created)}")
+
+
 def run_server(db_path, host="127.0.0.1", port=8420):
     """
     Start the AgentDB HTTP server.
@@ -1624,6 +2130,8 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     conn = get_connection(db_path)
     ensure_scheduler_schema(conn)
     _ensure_providers_schema(conn)
+    # Ensure v1.5/v1.6 tables exist on pre-existing databases
+    _ensure_v15_schema(conn)
     # Backfill any new DEFAULT_CONFIG keys into existing databases
     from agentdb.database import DEFAULT_CONFIG
     import uuid as _uuid_mod
@@ -1668,7 +2176,18 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     except Exception as e:
         print(f"Warning: Could not start scheduled task runner: {e}")
 
-    # Start MCP server in a daemon thread (SSE transport on port 8421)
+    # Start idle detector for automatic sleep-time consolidation
+    try:
+        from agentdb.sleep import start_idle_detector
+        conn = get_connection(db_path)
+        idle_threshold = int(crud.get_config_value(conn, "sleep_idle_threshold_seconds", "300"))
+        conn.close()
+        start_idle_detector(lambda: get_connection(db_path), threshold_seconds=idle_threshold)
+        print(f"Idle detector started (threshold: {idle_threshold}s)")
+    except Exception as e:
+        print(f"Warning: Could not start idle detector: {e}")
+
+    # Start MCP server with crash recovery (PRD 16.5)
     try:
         import threading as _threading
         conn = get_connection(db_path)
@@ -1676,18 +2195,46 @@ def run_server(db_path, host="127.0.0.1", port=8420):
         mcp_port_val = int(crud.get_config_value(conn, "mcp_port", "8421") or "8421")
         conn.close()
         if mcp_enabled == "true":
-            from agentdb.mcp_server import run_mcp_server
             _mcp_port = mcp_port_val
+
+            def _mcp_resilient_wrapper():
+                """Wraps the MCP server with auto-restart on crash."""
+                global _mcp_failure_count, _mcp_last_restart, _mcp_started
+                max_failures = 5
+                failure_window = 60  # seconds
+                first_failure_time = None
+
+                while True:
+                    try:
+                        from agentdb.mcp_server import run_mcp_server
+                        _mcp_started = True
+                        _mcp_last_restart = datetime.utcnow().isoformat()
+                        run_mcp_server(db_path, transport="sse", host="127.0.0.1", port=mcp_port_val)
+                        break  # Clean exit
+                    except Exception as e:
+                        _mcp_failure_count += 1
+                        now = time.time()
+                        if first_failure_time is None:
+                            first_failure_time = now
+                        # Reset failure window if enough time has passed
+                        if now - first_failure_time > failure_window:
+                            _mcp_failure_count = 1
+                            first_failure_time = now
+                        if _mcp_failure_count >= max_failures:
+                            print(f"CRITICAL: MCP server failed {max_failures} times in {failure_window}s, stopping restart attempts: {e}")
+                            _mcp_started = False
+                            break
+                        print(f"Warning: MCP server crashed ({_mcp_failure_count}/{max_failures}), restarting in 2s: {e}")
+                        time.sleep(2)
+
             _mcp_thread = _threading.Thread(
-                target=run_mcp_server,
-                args=(db_path,),
-                kwargs={"transport": "sse", "host": "127.0.0.1", "port": mcp_port_val},
+                target=_mcp_resilient_wrapper,
                 daemon=True,
                 name="agentdb-mcp",
             )
             _mcp_thread.start()
             _mcp_started = True
-            print(f"MCP server started (SSE) on port {mcp_port_val}")
+            print(f"MCP server started (SSE) on port {mcp_port_val} with crash recovery")
     except Exception as e:
         print(f"Warning: Could not start MCP server: {e}")
 

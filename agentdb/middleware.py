@@ -328,10 +328,143 @@ class LocalLLMAdapter(ProviderAdapter):
             return str(result)
 
 
+class OllamaAdapter(ProviderAdapter):
+    """Adapter for Ollama local server (HTTP to /api/chat)."""
+
+    def format_context(self, context_payload):
+        return LocalLLMAdapter().format_context(context_payload)
+
+    def call_provider(self, messages, formatted_context, config):
+        import urllib.request
+
+        base_url = config.get("llm_endpoint", "http://localhost:11434")
+        endpoint = base_url.rstrip("/")
+        if not endpoint.endswith("/api/chat"):
+            endpoint += "/api/chat"
+        model = config.get("llm_model", "llama3")
+
+        api_messages = [{"role": "system", "content": formatted_context}]
+        for msg in messages:
+            api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        payload = {"model": model, "messages": api_messages, "stream": False}
+
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return result.get("message", {}).get("content", str(result))
+
+
+class LlamaCppAdapter(ProviderAdapter):
+    """Adapter for llama.cpp server (OpenAI-compatible /v1/chat/completions)."""
+
+    def format_context(self, context_payload):
+        return OpenAIAdapter().format_context(context_payload)
+
+    def call_provider(self, messages, formatted_context, config):
+        import urllib.request
+
+        base_url = config.get("llm_endpoint", "http://localhost:8080")
+        endpoint = base_url.rstrip("/")
+        if not endpoint.endswith("/v1/chat/completions"):
+            endpoint += "/v1/chat/completions"
+        model = config.get("llm_model", "default")
+
+        api_messages = [{"role": "system", "content": formatted_context}]
+        for msg in messages:
+            api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        payload = {"model": model, "messages": api_messages, "max_tokens": 4096}
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return result["choices"][0]["message"]["content"]
+
+
+class LMStudioAdapter(ProviderAdapter):
+    """Adapter for LM Studio (OpenAI-compatible endpoint)."""
+
+    def format_context(self, context_payload):
+        return OpenAIAdapter().format_context(context_payload)
+
+    def call_provider(self, messages, formatted_context, config):
+        import urllib.request
+
+        base_url = config.get("llm_endpoint", "http://localhost:1234")
+        endpoint = base_url.rstrip("/")
+        if not endpoint.endswith("/v1/chat/completions"):
+            endpoint += "/v1/chat/completions"
+        model = config.get("llm_model", "default")
+
+        api_messages = [{"role": "system", "content": formatted_context}]
+        for msg in messages:
+            api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        payload = {"model": model, "messages": api_messages, "max_tokens": 4096}
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return result["choices"][0]["message"]["content"]
+
+
+class CustomAdapter(ProviderAdapter):
+    """Adapter for any OpenAI-compatible /v1/chat/completions endpoint."""
+
+    def format_context(self, context_payload):
+        return OpenAIAdapter().format_context(context_payload)
+
+    def call_provider(self, messages, formatted_context, config):
+        import urllib.request
+
+        endpoint = config.get("llm_endpoint", "")
+        if not endpoint:
+            raise ValueError("Custom provider requires an endpoint URL")
+        api_key = config.get("llm_api_key", "")
+        model = config.get("llm_model", "default")
+
+        api_messages = [{"role": "system", "content": formatted_context}]
+        for msg in messages:
+            api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        payload = {"model": model, "messages": api_messages, "max_tokens": 4096}
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return result["choices"][0]["message"]["content"]
+
+
 ADAPTERS = {
     "claude": ClaudeAdapter,
     "openai": OpenAIAdapter,
     "local": LocalLLMAdapter,
+    "ollama": OllamaAdapter,
+    "llamacpp": LlamaCppAdapter,
+    "lmstudio": LMStudioAdapter,
+    "custom": CustomAdapter,
 }
 
 
@@ -340,35 +473,85 @@ def get_adapter(provider_name):
     Get the adapter class for a provider name.
 
     Args:
-        provider_name: str, one of 'claude', 'openai', 'local'.
+        provider_name: str, one of the registered provider types.
 
     Returns:
         ProviderAdapter instance.
     """
     cls = ADAPTERS.get(provider_name)
     if cls is None:
-        raise ValueError(f"Unknown LLM provider: {provider_name}. Available: {list(ADAPTERS.keys())}")
+        # Fall back to custom adapter for unknown types
+        cls = CustomAdapter
     return cls()
 
 
-def get_llm_config(conn):
-    """Load LLM config from the default llm_providers row, falling back to meta_config."""
-    # Prefer the explicitly-marked default provider (multi-model registry)
+def get_llm_config(conn, provider_id=None, agent_id=None):
+    """
+    Load LLM config using v1.5 provider resolution priority chain:
+    1. Explicit provider_id in request
+    2. Agent's default_provider_id
+    3. active_provider_id in meta_config
+    4. First is_default=1 row in llm_providers
+    5. First is_active=1 row in llm_providers
+    6. Flat meta_config keys (legacy fallback)
+    """
+    def _provider_to_config(prov):
+        prov = dict(prov) if not isinstance(prov, dict) else prov
+        return {
+            "llm_provider": prov.get("provider_type", "claude"),
+            "llm_api_key": prov.get("api_key") or "",
+            "llm_model": prov.get("model", ""),
+            "llm_endpoint": prov.get("endpoint") or "",
+            "provider_id": prov.get("id"),
+            "context_window_tokens": prov.get("context_window_tokens", 200000),
+            "max_output_tokens": prov.get("max_output_tokens", 4096),
+            "temperature": prov.get("temperature", 0.7),
+            "system_prompt_prefix": prov.get("system_prompt_prefix") or "",
+        }
+
     try:
+        # 1. Explicit provider_id
+        if provider_id:
+            prov = conn.execute("SELECT * FROM llm_providers WHERE id = ?",
+                                (provider_id,)).fetchone()
+            if prov:
+                return _provider_to_config(prov)
+
+        # 2. Agent's default_provider_id
+        if agent_id:
+            agent = conn.execute("SELECT default_provider_id FROM agents WHERE id = ?",
+                                 (agent_id,)).fetchone()
+            if agent and agent["default_provider_id"]:
+                prov = conn.execute("SELECT * FROM llm_providers WHERE id = ?",
+                                    (agent["default_provider_id"],)).fetchone()
+                if prov:
+                    return _provider_to_config(prov)
+
+        # 3. active_provider_id in meta_config
+        active_id = crud.get_config_value(conn, "active_provider_id")
+        if active_id:
+            prov = conn.execute("SELECT * FROM llm_providers WHERE id = ?",
+                                (active_id,)).fetchone()
+            if prov:
+                return _provider_to_config(prov)
+
+        # 4. First is_default=1 row
         prov = conn.execute(
             "SELECT * FROM llm_providers WHERE is_default = 1 LIMIT 1"
         ).fetchone()
         if prov:
-            prov = dict(prov)
-            return {
-                "llm_provider": prov["provider_type"],
-                "llm_api_key": prov.get("api_key") or "",
-                "llm_model": prov["model"],
-                "llm_endpoint": prov.get("endpoint") or "",
-            }
+            return _provider_to_config(prov)
+
+        # 5. First is_active=1 row
+        prov = conn.execute(
+            "SELECT * FROM llm_providers WHERE is_active = 1 ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        if prov:
+            return _provider_to_config(prov)
     except Exception:
         pass
-    # Fallback: flat meta_config keys (legacy / first-run before providers seeded)
+
+    # 6. Flat meta_config keys (legacy fallback)
     keys = ["llm_provider", "llm_api_key", "llm_model", "llm_endpoint"]
     config = {}
     for key in keys:
@@ -399,8 +582,9 @@ def get_identity_memories(conn, agent_id=None):
     return result
 
 
-def execute_chat_pipeline(conn, user_message, session_id, messages_history=None, agent_id=None,
-                          provider_override=None, model_override=None):
+def execute_chat_pipeline(conn, user_message, session_id=None, messages_history=None,
+                          agent_id=None, provider_override=None, model_override=None,
+                          provider_id=None):
     """
     Full chat pipeline: retrieve context, call LLM, ingest exchange, return observability payload.
 
@@ -410,8 +594,9 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None,
         session_id: str, active session ID.
         messages_history: list of previous {"role", "content"} dicts (optional).
         agent_id: str, scope retrieval and ingestion to this agent (optional).
-        provider_override: str, override the configured LLM provider (optional).
+        provider_override: str, override the configured LLM provider type (optional).
         model_override: str, override the configured model name (optional).
+        provider_id: str, explicit provider ID from providers table (optional).
 
     Returns:
         dict with keys: response, context_payload, snapshot_id, ingested_ids
@@ -419,21 +604,24 @@ def execute_chat_pipeline(conn, user_message, session_id, messages_history=None,
     if messages_history is None:
         messages_history = []
 
-    # Load provider config
-    llm_config = get_llm_config(conn)
-    provider_name = provider_override or llm_config.get("llm_provider", "claude")
-    # If provider_override is a provider ID, load from llm_providers table
-    if provider_override and len(provider_override) > 20 and '-' in provider_override:
-        prov = conn.execute("SELECT * FROM llm_providers WHERE id = ?", (provider_override,)).fetchone()
-        if prov:
-            prov = dict(prov)
-            provider_name = prov['provider_type']
-            llm_config['llm_api_key'] = prov['api_key']
-            llm_config['llm_model'] = prov['model']
-            if prov.get('endpoint'):
-                llm_config['llm_endpoint'] = prov['endpoint']
+    # Load provider config using v1.5 resolution chain
+    effective_provider_id = provider_id or provider_override
+    llm_config = get_llm_config(conn, provider_id=effective_provider_id, agent_id=agent_id)
+    provider_name = llm_config.get("llm_provider", "claude")
+    if provider_override and provider_override in ADAPTERS:
+        provider_name = provider_override
     if model_override:
         llm_config["llm_model"] = model_override
+
+    # Update last_used on the provider
+    if llm_config.get("provider_id"):
+        try:
+            conn.execute("UPDATE llm_providers SET last_used = ? WHERE id = ?",
+                         (datetime.utcnow().isoformat(), llm_config["provider_id"]))
+            conn.commit()
+        except Exception:
+            pass
+
     adapter = get_adapter(provider_name)
 
     # Retrieve context

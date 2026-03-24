@@ -74,18 +74,63 @@ def parse_frontmatter(text):
 def _parse_simple_yaml(text):
     """
     Minimal YAML parser for frontmatter fields.
-    Supports: key: value, key: [list, items], key: {obj}
+
+    Supported subset:
+        - key: value (string, int, bool)
+        - key: [list, items] (inline bracket list)
+        - key: {obj} (inline JSON object)
+        - key: "quoted string" / key: 'quoted string'
+
+    Unsupported features that are explicitly rejected:
+        - Multi-line values (|, >, continuation lines)
+        - YAML anchors/aliases (&anchor, *alias)
+        - Nested indented mappings
     """
     result = {}
-    for line in text.split("\n"):
-        line = line.strip()
-        if not line or line.startswith("#"):
+    lines = text.split("\n")
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        if ":" not in line:
+
+        # Detect unsupported YAML features
+        if stripped.startswith("- ") and ":" not in stripped:
+            # Block sequence item without a key — unsupported
+            raise ValueError(
+                f"Line {i + 1}: Block sequence syntax ('- item') is not supported. "
+                "Use inline lists: key: [item1, item2]"
+            )
+
+        if ":" not in stripped:
+            # Continuation line — could be multi-line value
+            if result:
+                raise ValueError(
+                    f"Line {i + 1}: Multi-line values are not supported in frontmatter. "
+                    "Keep all values on a single line."
+                )
             continue
-        key, _, value = line.partition(":")
+
+        key, _, value = stripped.partition(":")
         key = key.strip()
         value = value.strip()
+
+        # Reject YAML anchors and aliases
+        if key.startswith("&") or key.startswith("*"):
+            raise ValueError(
+                f"Line {i + 1}: YAML anchors/aliases (&, *) are not supported."
+            )
+        if value.startswith("&") or value.startswith("*"):
+            raise ValueError(
+                f"Line {i + 1}: YAML anchors/aliases (&, *) are not supported."
+            )
+
+        # Reject multi-line value indicators
+        if value in ("|", ">", "|-", ">-", "|+", ">+"):
+            raise ValueError(
+                f"Line {i + 1}: Multi-line block scalar ('{value}') is not supported. "
+                "Keep the value on a single line."
+            )
 
         # Parse lists: [item1, item2]
         if value.startswith("[") and value.endswith("]"):

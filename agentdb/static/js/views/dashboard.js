@@ -42,6 +42,11 @@
       ['Pending Feedback', d.pending_feedback, 'warn'],
       ['Sessions', d.sessions, ''],
       ['Relations', d.relations, ''],
+      ['Projects', d.conversation_threads, ''],
+      ['Pinned', d.pinned_memories, ''],
+      ['Attachments', d.file_attachments, ''],
+      ['Tasks', d.autonomous_tasks, ''],
+      ['Channels', d.channel_configs, ''],
     ];
     document.getElementById('stats-grid').innerHTML = items.map(([label, value, cls]) =>
       `<div class="stat-card"><div class="value" style="${cls==='warn'&&value>0?'color:var(--yellow)':''}">${value}</div><div class="label">${label}</div></div>`

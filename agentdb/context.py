@@ -1,17 +1,22 @@
 """
-Context retrieval pipeline for AgentDB.
+Context retrieval pipeline for AgentDB v1.5/v1.6.
 
-Implements the multi-stage retrieval pipeline described in PRD Section 6.2:
-1. Generate embedding from query text
-2. Cosine similarity search across all three memory tiers
-3. Entity identification and expansion via relations
-4. Goal matching against active goal embeddings
-5. Skill matching against skill description embeddings
+Implements the multi-stage retrieval pipeline:
+1. Query normalization + embedding generation
+2. Semantic vector search across all three memory tiers
+3. BM25 keyword search via FTS5
+4. Graph traversal (entity → relations → memories)
+5. Temporal weighting (exponential recency decay)
+6. Score fusion (0.4 × semantic + 0.25 × BM25 + 0.2 × graph + 0.15 × temporal)
+7. Cross-encoder reranking (top-N candidates reranked against query)
+8. Pinned memory injection (always-in-context memories at top of payload)
+9. Context assembly with token budget enforcement
 
 Returns a unified context payload with labeled sections.
 """
 
 import json
+import uuid
 from datetime import datetime
 
 from agentdb import crud
@@ -22,6 +27,46 @@ from agentdb.embeddings import (
     cosine_similarity,
     semantic_search,
 )
+
+
+# ── Cross-encoder reranker (lazy-loaded) ──
+
+_reranker_model = None
+
+
+def _get_reranker(model_name="cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    """Lazy-load the cross-encoder reranker model."""
+    global _reranker_model
+    if _reranker_model is None:
+        try:
+            from sentence_transformers import CrossEncoder
+            _reranker_model = CrossEncoder(model_name)
+        except Exception:
+            _reranker_model = False  # Mark as unavailable
+    return _reranker_model if _reranker_model is not False else None
+
+
+def rerank_candidates(query, candidates, model_name=None):
+    """
+    Rerank a list of (id, content, data) tuples using the cross-encoder.
+
+    Returns the same tuples reordered by cross-encoder relevance score.
+    Each tuple's data dict gets a 'reranker_score' key added.
+    """
+    if not candidates:
+        return candidates
+    reranker = _get_reranker(model_name) if model_name else _get_reranker()
+    if reranker is None:
+        return candidates
+
+    pairs = [(query, c[1]) for c in candidates]
+    scores = reranker.predict(pairs)
+
+    for i, score in enumerate(scores):
+        candidates[i][2]["reranker_score"] = float(score)
+
+    # Sort by reranker score descending
+    return sorted(candidates, key=lambda x: x[2].get("reranker_score", 0), reverse=True)
 
 
 def retrieve_context(conn, query, filters=None, config=None, agent_id=None,
@@ -168,29 +213,104 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None,
             k: round(data[k], 4) for k in ("semantic", "bm25", "graph", "temporal") if data[k] > 0
         }
 
-    # Sort by combined score, split back into tiers
+    # Stage 7: Cross-encoder reranking
+    reranker_enabled = config.get("reranker_enabled", "false") == "true"
+    skip_rerank = (filters or {}).get("skip_rerank", False)
+    reranker_candidates_count = int(config.get("reranker_candidates", 20))
+
     ranked = sorted(all_results.values(), key=lambda x: x["combined_score"], reverse=True)
+
+    if reranker_enabled and not skip_rerank and ranked:
+        strategies_used.append("reranker")
+        # Prepare top-N candidates for reranking
+        to_rerank = ranked[:reranker_candidates_count]
+        rerank_input = [
+            [mid_data["entry"].get("id", ""), mid_data["entry"].get("content", ""), mid_data]
+            for mid_data in to_rerank
+        ]
+        reranked = rerank_candidates(query, rerank_input,
+                                     model_name=config.get("reranker_model"))
+        # Merge reranked portion back; keep the rest in original order
+        reranked_data = [item[2] for item in reranked]
+        remaining = ranked[reranker_candidates_count:]
+        ranked = reranked_data + remaining
+
+    # Split into tiers
     memories = {"short_term": [], "midterm": [], "long_term": []}
     for data in ranked:
         tier = data["entry"].get("tier", "")
         if tier in memories and len(memories[tier]) < top_k:
             memories[tier].append(data["entry"])
 
-    # Stage 7: Entity identification and expansion
+    # Stage 8: Pinned memory injection
+    pinned = []
+    pinned_ids = []
+    try:
+        pinned_contents = crud.get_pinned_memory_contents(conn, agent_id)
+        for pc in pinned_contents:
+            pinned.append(pc)
+            pinned_ids.append(pc.get("pin_id") or pc.get("id"))
+    except Exception:
+        pass  # pinned_memories table may not exist on older databases
+
+    # Stage 9: Entity identification and expansion
     entities = _identify_entities(conn, query_embedding, top_k=5)
 
-    # Stage 8: Goal matching
+    # Stage 10: Goal matching
     goals = _match_goals(conn, query_embedding, threshold=goal_threshold)
 
-    # Stage 9: Skill matching
+    # Stage 11: Skill matching
     skills = _match_skills(conn, query_embedding, threshold=skill_threshold)
+
+    # Stage 12: Context snapshot auto-capture
+    snapshot_id = None
+    try:
+        memory_ids_for_snapshot = []
+        for tier, mems in memories.items():
+            for m in mems:
+                strategy_info = m.get("retrieval_strategies", {})
+                memory_ids_for_snapshot.append({
+                    "id": m.get("id"),
+                    "table": {"short_term": "short_term_memory",
+                              "midterm": "midterm_memory",
+                              "long_term": "long_term_memory"}.get(tier, tier),
+                    "strategies": strategy_info,
+                })
+        skill_ids = [s.get("id") for s in skills]
+        relation_ids = []
+        for ent in entities:
+            for rel in ent.get("relations", []):
+                if rel.get("id"):
+                    relation_ids.append(rel["id"])
+        goal_id = goals[0].get("id") if goals else None
+
+        snapshot_id = str(uuid.uuid4())
+        conn.execute(
+            """INSERT INTO context_snapshots
+               (id, timestamp, trigger_description, memory_ids, skill_ids,
+                relation_ids, goal_id, pinned_memory_ids, session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (snapshot_id, datetime.utcnow().isoformat(),
+             f"retrieve_context: {query[:100]}",
+             json.dumps(memory_ids_for_snapshot),
+             json.dumps(skill_ids),
+             json.dumps(relation_ids),
+             goal_id,
+             json.dumps(pinned_ids) if pinned_ids else None,
+             None),  # session_id filled by middleware if available
+        )
+        conn.commit()
+    except Exception:
+        snapshot_id = None  # Non-critical; don't break retrieval
 
     return {
         "memories": memories,
+        "pinned": pinned,
         "entities": entities,
         "goals": goals,
         "skills": skills,
         "retrieval_strategies": strategies_used,
+        "snapshot_id": snapshot_id,
     }
 
 
@@ -204,6 +324,9 @@ def _load_retrieval_config(conn):
         "graph_traversal_enabled",
         "temporal_boost_enabled",
         "temporal_decay_curve",
+        "reranker_enabled",
+        "reranker_model",
+        "reranker_candidates",
     ]
     config = {}
     for key in keys:

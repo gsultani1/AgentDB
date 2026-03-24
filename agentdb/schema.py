@@ -1,11 +1,13 @@
 """
-SQLite schema definition for AgentDB v1.4.
+SQLite schema definition for AgentDB v1.5/v1.6.
 
-Contains all 23 tables organized into five functional groups:
-- Memory Tables (short_term_memory, midterm_memory, long_term_memory)
-- Knowledge Infrastructure (agents, skills, skill_implementations, relations, entities, goals, tags, tag_assignments)
+Contains all tables organized into six functional groups:
+- Memory Tables (short_term_memory, midterm_memory, long_term_memory, pinned_memories, file_attachments)
+- Knowledge Infrastructure (agents, skills, skill_implementations, skill_executions, relations, entities, goals, tags, tag_assignments)
 - Workspace Awareness (workspaces, workspace_files)
-- Operational Support (sessions, meta_config, contradictions, audit_log, feedback, context_snapshots, notification_queue)
+- Operational Support (sessions, conversation_threads, meta_config, llm_providers, contradictions, audit_log, feedback, context_snapshots, notification_queue, scheduled_tasks)
+- Autonomous Execution (autonomous_tasks, task_steps, task_actions, file_access_grants, shell_command_log)
+- External Channels (channel_configs, channel_messages)
 - Performance Optimization (views, embeddings_cache)
 
 Also contains trigger definitions for polymorphic referential integrity,
@@ -22,13 +24,14 @@ CREATE TABLE IF NOT EXISTS short_term_memory (
     source          TEXT NOT NULL CHECK(source IN (
                         'conversation', 'tool_output', 'sensor',
                         'chatgpt_import', 'claude_import',
-                        'markdown_authored')),
+                        'markdown_authored', 'file_upload')),
     content         TEXT NOT NULL,
     embedding       BLOB,
     ttl_seconds     INTEGER NOT NULL DEFAULT 3600,
     session_id      TEXT REFERENCES sessions(id),
     status          TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
-                        'active', 'promoted', 'expired', 'imported'))
+                        'active', 'promoted', 'expired', 'imported')),
+    attachment_ids  JSON
 );
 """
 
@@ -75,7 +78,8 @@ CREATE TABLE IF NOT EXISTS agents (
     description     TEXT,
     created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
     last_active     DATETIME,
-    config          JSON
+    config          JSON,
+    default_provider_id TEXT
 );
 """
 
@@ -222,7 +226,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     embedding       BLOB,
     status          TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
                         'active', 'closed')),
-    workspace_id    TEXT REFERENCES workspaces(id)
+    workspace_id    TEXT REFERENCES workspaces(id),
+    thread_id       TEXT,
+    provider_id     TEXT
 );
 """
 
@@ -263,7 +269,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     after_snapshot  JSON,
     triggered_by    TEXT NOT NULL CHECK(triggered_by IN (
                         'consolidation', 'user_feedback', 'agent_inference',
-                        'migration', 'markdown_import', 'manual'))
+                        'migration', 'markdown_import', 'manual',
+                        'system_init', 'skill_execution', 'task_execution',
+                        'channel_message', 'external_agent'))
 );
 """
 
@@ -290,7 +298,11 @@ CREATE TABLE IF NOT EXISTS context_snapshots (
     skill_ids           JSON,
     relation_ids        JSON,
     goal_id             TEXT REFERENCES goals(id),
-    outcome             TEXT
+    outcome             TEXT,
+    provider_id         TEXT,
+    token_estimate      INTEGER,
+    pinned_memory_ids   JSON,
+    session_id          TEXT
 );
 """
 
@@ -371,7 +383,231 @@ CREATE TABLE IF NOT EXISTS llm_providers (
     model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
     endpoint TEXT DEFAULT '',
     is_default INTEGER DEFAULT 0,
+    description TEXT,
+    context_window_tokens INTEGER DEFAULT 200000,
+    max_output_tokens INTEGER DEFAULT 4096,
+    temperature REAL DEFAULT 0.7,
+    system_prompt_prefix TEXT,
+    is_active INTEGER DEFAULT 1,
+    last_used DATETIME,
+    last_test_at DATETIME,
+    notes TEXT,
     created_at TEXT DEFAULT (datetime('now'))
+);
+"""
+
+# ── Conversation Threads ──
+
+CREATE_CONVERSATION_THREADS = """
+CREATE TABLE IF NOT EXISTS conversation_threads (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    agent_id        TEXT NOT NULL DEFAULT 'default',
+    provider_id     TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    last_active     DATETIME NOT NULL DEFAULT (datetime('now')),
+    summary         TEXT,
+    summary_embedding BLOB,
+    status          TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
+                        'active', 'archived')),
+    pinned          BOOLEAN NOT NULL DEFAULT 0,
+    metadata        JSON
+);
+"""
+
+# ── Memory Enhancements ──
+
+CREATE_PINNED_MEMORIES = """
+CREATE TABLE IF NOT EXISTS pinned_memories (
+    id              TEXT PRIMARY KEY,
+    memory_id       TEXT NOT NULL,
+    memory_table    TEXT NOT NULL CHECK(memory_table IN (
+                        'short_term_memory', 'midterm_memory', 'long_term_memory')),
+    agent_id        TEXT,
+    pinned_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+    pinned_by       TEXT NOT NULL DEFAULT 'user' CHECK(pinned_by IN ('user', 'agent')),
+    label           TEXT,
+    priority        INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+CREATE_FILE_ATTACHMENTS = """
+CREATE TABLE IF NOT EXISTS file_attachments (
+    id                TEXT PRIMARY KEY,
+    session_id        TEXT,
+    thread_id         TEXT,
+    filename          TEXT NOT NULL,
+    mime_type         TEXT,
+    size_bytes        INTEGER,
+    extraction_method TEXT CHECK(extraction_method IN (
+                          'pdf', 'text', 'code', 'image_ocr', 'raw')),
+    extracted_text    TEXT,
+    extracted_embedding BLOB,
+    chunk_count       INTEGER DEFAULT 0,
+    stm_ids           JSON,
+    uploaded_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+    retained_path     TEXT
+);
+"""
+
+# ── Skill Execution Log ──
+
+CREATE_SKILL_EXECUTIONS = """
+CREATE TABLE IF NOT EXISTS skill_executions (
+    id                TEXT PRIMARY KEY,
+    skill_id          TEXT NOT NULL,
+    implementation_id TEXT,
+    agent_id          TEXT NOT NULL DEFAULT 'default',
+    session_id        TEXT,
+    started_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    completed_at      DATETIME,
+    duration_ms       INTEGER,
+    status            TEXT NOT NULL DEFAULT 'running' CHECK(status IN (
+                          'running', 'success', 'failed', 'timeout', 'sandbox_violation')),
+    inputs            JSON,
+    outputs           JSON,
+    stdout            TEXT,
+    stderr            TEXT,
+    exit_code         INTEGER,
+    resource_usage    JSON
+);
+"""
+
+# ── External Channels ──
+
+CREATE_CHANNEL_CONFIGS = """
+CREATE TABLE IF NOT EXISTS channel_configs (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL,
+    channel_type      TEXT NOT NULL CHECK(channel_type IN (
+                          'email', 'whatsapp', 'imessage', 'sms')),
+    config            JSON NOT NULL,
+    authorized_senders JSON,
+    agent_id          TEXT NOT NULL DEFAULT 'default',
+    is_active         BOOLEAN NOT NULL DEFAULT 1,
+    is_default_notification BOOLEAN NOT NULL DEFAULT 0,
+    polling_interval_seconds INTEGER DEFAULT 60,
+    last_poll_at      DATETIME,
+    last_message_at   DATETIME,
+    last_test_at      DATETIME,
+    last_test_result  TEXT,
+    created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at        DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+CREATE_CHANNEL_MESSAGES = """
+CREATE TABLE IF NOT EXISTS channel_messages (
+    id              TEXT PRIMARY KEY,
+    channel_id      TEXT NOT NULL,
+    direction       TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
+    sender          TEXT,
+    recipient       TEXT,
+    content         TEXT NOT NULL,
+    raw_payload     JSON,
+    session_id      TEXT,
+    task_id         TEXT,
+    status          TEXT NOT NULL DEFAULT 'delivered' CHECK(status IN (
+                        'pending', 'delivered', 'failed', 'processing')),
+    error           TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+# ── Autonomous Task Execution ──
+
+CREATE_AUTONOMOUS_TASKS = """
+CREATE TABLE IF NOT EXISTS autonomous_tasks (
+    id                    TEXT PRIMARY KEY,
+    title                 TEXT NOT NULL,
+    goal                  TEXT NOT NULL,
+    agent_id              TEXT NOT NULL DEFAULT 'default',
+    provider_id           TEXT,
+    status                TEXT NOT NULL DEFAULT 'pending' CHECK(status IN (
+                              'pending', 'planning', 'running', 'paused',
+                              'waiting_approval', 'completed', 'failed',
+                              'cancelled', 'timeout')),
+    plan                  JSON,
+    max_iterations        INTEGER DEFAULT 50,
+    max_duration_minutes  INTEGER DEFAULT 60,
+    current_iteration     INTEGER DEFAULT 0,
+    require_approval      BOOLEAN NOT NULL DEFAULT 0,
+    approval_message      TEXT,
+    notification_channel_id TEXT,
+    creation_channel      TEXT DEFAULT 'ui',
+    result_summary        TEXT,
+    error                 TEXT,
+    started_at            DATETIME,
+    completed_at          DATETIME,
+    created_at            DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at            DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+CREATE_TASK_STEPS = """
+CREATE TABLE IF NOT EXISTS task_steps (
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    step_number     INTEGER NOT NULL,
+    description     TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK(status IN (
+                        'pending', 'running', 'completed', 'failed', 'skipped')),
+    llm_reasoning   TEXT,
+    started_at      DATETIME,
+    completed_at    DATETIME,
+    result          JSON,
+    error           TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+CREATE_TASK_ACTIONS = """
+CREATE TABLE IF NOT EXISTS task_actions (
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    step_id         TEXT,
+    action_type     TEXT NOT NULL CHECK(action_type IN (
+                        'file_read', 'file_write', 'shell_execute',
+                        'skill_execute', 'memory_retrieve', 'memory_ingest',
+                        'web_search', 'channel_send', 'llm_call')),
+    inputs          JSON,
+    outputs         JSON,
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK(status IN (
+                        'pending', 'running', 'completed', 'failed')),
+    duration_ms     INTEGER,
+    error           TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+# ── Local System Access ──
+
+CREATE_FILE_ACCESS_GRANTS = """
+CREATE TABLE IF NOT EXISTS file_access_grants (
+    id              TEXT PRIMARY KEY,
+    agent_id        TEXT NOT NULL DEFAULT 'default',
+    directory_path  TEXT NOT NULL,
+    permission      TEXT NOT NULL DEFAULT 'read' CHECK(permission IN (
+                        'read', 'read_write')),
+    granted_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    granted_by      TEXT NOT NULL DEFAULT 'operator',
+    notes           TEXT
+);
+"""
+
+CREATE_SHELL_COMMAND_LOG = """
+CREATE TABLE IF NOT EXISTS shell_command_log (
+    id              TEXT PRIMARY KEY,
+    agent_id        TEXT NOT NULL DEFAULT 'default',
+    task_id         TEXT,
+    command         TEXT NOT NULL,
+    working_dir     TEXT,
+    stdout          TEXT,
+    stderr          TEXT,
+    exit_code       INTEGER,
+    duration_ms     INTEGER,
+    started_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    completed_at    DATETIME
 );
 """
 
@@ -428,6 +664,52 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON scheduled_tasks(agent_id);",
     "CREATE INDEX IF NOT EXISTS idx_agents_last_active ON agents(last_active);",
     "CREATE INDEX IF NOT EXISTS idx_llm_providers_default ON llm_providers(is_default);",
+    "CREATE INDEX IF NOT EXISTS idx_llm_providers_active ON llm_providers(is_active);",
+    # Conversation threads
+    "CREATE INDEX IF NOT EXISTS idx_threads_agent ON conversation_threads(agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_threads_status ON conversation_threads(status);",
+    "CREATE INDEX IF NOT EXISTS idx_threads_last_active ON conversation_threads(last_active);",
+    # Pinned memories
+    "CREATE INDEX IF NOT EXISTS idx_pinned_memory ON pinned_memories(memory_id, memory_table);",
+    "CREATE INDEX IF NOT EXISTS idx_pinned_agent ON pinned_memories(agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_pinned_priority ON pinned_memories(priority);",
+    # File attachments
+    "CREATE INDEX IF NOT EXISTS idx_attachments_session ON file_attachments(session_id);",
+    "CREATE INDEX IF NOT EXISTS idx_attachments_thread ON file_attachments(thread_id);",
+    # Skill executions
+    "CREATE INDEX IF NOT EXISTS idx_skill_exec_skill ON skill_executions(skill_id);",
+    "CREATE INDEX IF NOT EXISTS idx_skill_exec_agent ON skill_executions(agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_skill_exec_status ON skill_executions(status);",
+    "CREATE INDEX IF NOT EXISTS idx_skill_exec_started ON skill_executions(started_at);",
+    # Channel configs
+    "CREATE INDEX IF NOT EXISTS idx_channel_type ON channel_configs(channel_type);",
+    "CREATE INDEX IF NOT EXISTS idx_channel_agent ON channel_configs(agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_channel_active ON channel_configs(is_active);",
+    # Channel messages
+    "CREATE INDEX IF NOT EXISTS idx_chanmsg_channel ON channel_messages(channel_id);",
+    "CREATE INDEX IF NOT EXISTS idx_chanmsg_direction ON channel_messages(direction);",
+    "CREATE INDEX IF NOT EXISTS idx_chanmsg_created ON channel_messages(created_at);",
+    "CREATE INDEX IF NOT EXISTS idx_chanmsg_task ON channel_messages(task_id);",
+    # Autonomous tasks
+    "CREATE INDEX IF NOT EXISTS idx_autotask_status ON autonomous_tasks(status);",
+    "CREATE INDEX IF NOT EXISTS idx_autotask_agent ON autonomous_tasks(agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_autotask_created ON autonomous_tasks(created_at);",
+    # Task steps
+    "CREATE INDEX IF NOT EXISTS idx_taskstep_task ON task_steps(task_id);",
+    "CREATE INDEX IF NOT EXISTS idx_taskstep_status ON task_steps(status);",
+    # Task actions
+    "CREATE INDEX IF NOT EXISTS idx_taskaction_task ON task_actions(task_id);",
+    "CREATE INDEX IF NOT EXISTS idx_taskaction_step ON task_actions(step_id);",
+    "CREATE INDEX IF NOT EXISTS idx_taskaction_type ON task_actions(action_type);",
+    # File access grants
+    "CREATE INDEX IF NOT EXISTS idx_file_grant_agent ON file_access_grants(agent_id);",
+    # Shell command log
+    "CREATE INDEX IF NOT EXISTS idx_shell_log_agent ON shell_command_log(agent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_shell_log_task ON shell_command_log(task_id);",
+    "CREATE INDEX IF NOT EXISTS idx_shell_log_started ON shell_command_log(started_at);",
+    # Sessions (new columns)
+    "CREATE INDEX IF NOT EXISTS idx_sessions_thread ON sessions(thread_id);",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider_id);",
 ]
 
 # ── All content tables that participate in polymorphic relations ──
@@ -443,11 +725,15 @@ CONTENT_TABLES = [
     "workspaces",
     "workspace_files",
     "sessions",
+    "conversation_threads",
+    "file_attachments",
+    "autonomous_tasks",
 ]
 
 # ── All valid table names for polymorphic references ──
 
-POLYMORPHIC_TABLES = CONTENT_TABLES + ["tags", "context_snapshots", "feedback"]
+POLYMORPHIC_TABLES = CONTENT_TABLES + ["tags", "context_snapshots", "feedback",
+                                        "skill_executions", "channel_configs"]
 
 # ── Trigger Definitions ──
 
@@ -581,6 +867,93 @@ BEGIN
 END;
 """
 
+# ── v1.5 Triggers ──
+
+# Skills cascade also removes skill_executions
+TRIGGER_SKILLS_CASCADE_EXECUTIONS = """
+CREATE TRIGGER IF NOT EXISTS trg_skills_cascade_executions
+AFTER DELETE ON skills
+FOR EACH ROW
+BEGIN
+    DELETE FROM skill_executions WHERE skill_id = OLD.id;
+END;
+"""
+
+# Providers SET NULL cascade: when a provider is deleted, null out references
+TRIGGER_PROVIDERS_CASCADE_NULL = """
+CREATE TRIGGER IF NOT EXISTS trg_providers_cascade_null
+AFTER DELETE ON llm_providers
+FOR EACH ROW
+BEGIN
+    UPDATE sessions SET provider_id = NULL WHERE provider_id = OLD.id;
+    UPDATE agents SET default_provider_id = NULL WHERE default_provider_id = OLD.id;
+    UPDATE context_snapshots SET provider_id = NULL WHERE provider_id = OLD.id;
+    UPDATE conversation_threads SET provider_id = NULL WHERE provider_id = OLD.id;
+    UPDATE autonomous_tasks SET provider_id = NULL WHERE provider_id = OLD.id;
+END;
+"""
+
+# Conversation thread deletion: cascade file_attachments, null sessions
+TRIGGER_THREADS_CASCADE = """
+CREATE TRIGGER IF NOT EXISTS trg_threads_cascade
+AFTER DELETE ON conversation_threads
+FOR EACH ROW
+BEGIN
+    DELETE FROM file_attachments WHERE thread_id = OLD.id;
+    UPDATE sessions SET thread_id = NULL WHERE thread_id = OLD.id;
+END;
+"""
+
+# Memory deletion: clean up pinned_memories
+TRIGGER_STM_CASCADE_PINNED = """
+CREATE TRIGGER IF NOT EXISTS trg_stm_cascade_pinned
+AFTER DELETE ON short_term_memory
+FOR EACH ROW
+BEGIN
+    DELETE FROM pinned_memories WHERE memory_id = OLD.id AND memory_table = 'short_term_memory';
+END;
+"""
+
+TRIGGER_MTM_CASCADE_PINNED = """
+CREATE TRIGGER IF NOT EXISTS trg_mtm_cascade_pinned
+AFTER DELETE ON midterm_memory
+FOR EACH ROW
+BEGIN
+    DELETE FROM pinned_memories WHERE memory_id = OLD.id AND memory_table = 'midterm_memory';
+END;
+"""
+
+TRIGGER_LTM_CASCADE_PINNED = """
+CREATE TRIGGER IF NOT EXISTS trg_ltm_cascade_pinned
+AFTER DELETE ON long_term_memory
+FOR EACH ROW
+BEGIN
+    DELETE FROM pinned_memories WHERE memory_id = OLD.id AND memory_table = 'long_term_memory';
+END;
+"""
+
+# Autonomous tasks cascade: steps and actions
+TRIGGER_TASKS_CASCADE = """
+CREATE TRIGGER IF NOT EXISTS trg_autonomous_tasks_cascade
+AFTER DELETE ON autonomous_tasks
+FOR EACH ROW
+BEGIN
+    DELETE FROM task_steps WHERE task_id = OLD.id;
+    DELETE FROM task_actions WHERE task_id = OLD.id;
+    DELETE FROM shell_command_log WHERE task_id = OLD.id;
+END;
+"""
+
+# Channel config cascade: messages
+TRIGGER_CHANNEL_CASCADE = """
+CREATE TRIGGER IF NOT EXISTS trg_channel_cascade_messages
+AFTER DELETE ON channel_configs
+FOR EACH ROW
+BEGIN
+    DELETE FROM channel_messages WHERE channel_id = OLD.id;
+END;
+"""
+
 # ── Ordered list of all CREATE TABLE statements ──
 
 # ── FTS5 Virtual Tables for BM25 Keyword Search ──
@@ -609,12 +982,17 @@ FTS_SYNC_TRIGGERS = [
 
 ALL_TABLES = [
     CREATE_AGENTS,            # agents first (referenced by agent_id columns)
+    CREATE_LLM_PROVIDERS,     # providers before sessions/threads that reference them
+    CREATE_CONVERSATION_THREADS,
     CREATE_SESSIONS,          # sessions before short_term_memory
     CREATE_SHORT_TERM_MEMORY,
     CREATE_MIDTERM_MEMORY,
     CREATE_LONG_TERM_MEMORY,
+    CREATE_PINNED_MEMORIES,
+    CREATE_FILE_ATTACHMENTS,
     CREATE_SKILLS,
     CREATE_SKILL_IMPLEMENTATIONS,
+    CREATE_SKILL_EXECUTIONS,
     CREATE_RELATIONS,
     CREATE_ENTITIES,
     CREATE_GOALS,
@@ -629,9 +1007,15 @@ ALL_TABLES = [
     CREATE_CONTEXT_SNAPSHOTS,
     CREATE_NOTIFICATION_QUEUE,
     CREATE_SCHEDULED_TASKS,
+    CREATE_CHANNEL_CONFIGS,
+    CREATE_CHANNEL_MESSAGES,
+    CREATE_AUTONOMOUS_TASKS,
+    CREATE_TASK_STEPS,
+    CREATE_TASK_ACTIONS,
+    CREATE_FILE_ACCESS_GRANTS,
+    CREATE_SHELL_COMMAND_LOG,
     CREATE_VIEWS,
     CREATE_EMBEDDINGS_CACHE,
-    CREATE_LLM_PROVIDERS,
 ]
 
 ALL_TRIGGERS = [
@@ -644,6 +1028,14 @@ ALL_TRIGGERS = [
     TRIGGER_FEEDBACK_VALIDATE_INSERT,
     TRIGGER_FEEDBACK_VALIDATE_UPDATE,
     TRIGGER_SKILLS_CASCADE_IMPLEMENTATIONS,
+    TRIGGER_SKILLS_CASCADE_EXECUTIONS,
     TRIGGER_WORKSPACES_CASCADE_FILES,
     TRIGGER_TAGS_CASCADE_ASSIGNMENTS,
+    TRIGGER_PROVIDERS_CASCADE_NULL,
+    TRIGGER_THREADS_CASCADE,
+    TRIGGER_STM_CASCADE_PINNED,
+    TRIGGER_MTM_CASCADE_PINNED,
+    TRIGGER_LTM_CASCADE_PINNED,
+    TRIGGER_TASKS_CASCADE,
+    TRIGGER_CHANNEL_CASCADE,
 ] + CASCADE_DELETE_TRIGGERS

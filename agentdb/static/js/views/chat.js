@@ -36,6 +36,9 @@
       html += '  <select id="chat-provider" class="btn" style="min-width:180px">';
       html += '    <option value="">Default Provider</option>';
       html += '  </select>';
+      html += '  <select id="chat-project" class="btn" style="min-width:160px">';
+      html += '    <option value="">No Project</option>';
+      html += '  </select>';
       html += '  <button class="btn btn-primary" id="chat-new-session">New Session</button>';
       html += '  <span class="text-muted text-sm" id="chat-session-label">';
       html += AgentDB.state.chatSessionId
@@ -94,6 +97,23 @@
           ['claude', 'openai', 'local'].forEach(function(v) {
             sel.innerHTML += '<option value="' + v + '">' + v + '</option>';
           });
+        }
+      });
+
+      /* ---- Populate project dropdown ---- */
+      AgentDB.api('GET', '/api/threads?limit=100').then(function(r) {
+        var sel = document.getElementById('chat-project');
+        if (!sel) return;
+        var threads = (r.status === 'ok' && r.data) ? r.data : (Array.isArray(r) ? r : []);
+        threads.forEach(function(t) {
+          var opt = document.createElement('option');
+          opt.value = t.id;
+          opt.textContent = t.name;
+          sel.appendChild(opt);
+        });
+        /* Pre-select if navigated from projects view */
+        if (AgentDB.state.chatThreadId) {
+          sel.value = AgentDB.state.chatThreadId;
         }
       });
 
@@ -159,8 +179,14 @@
   V.startSession = function startSession() {
     var provider = document.getElementById('chat-provider');
     var providerVal = provider ? provider.value : 'claude';
+    var projectSel = document.getElementById('chat-project');
+    var threadId = projectSel ? projectSel.value : '';
 
-    return AgentDB.api('POST', '/api/agent/session/start', { provider: providerVal })
+    return AgentDB.api('POST', '/api/agent/session/start', {
+      provider: providerVal,
+      thread_id: threadId || undefined,
+      provider_id: providerVal || undefined,
+    })
       .then(function (res) {
         var data = res.data || res;
         if (data && data.session_id) {
@@ -179,7 +205,9 @@
 
           /* Update session label */
           var label = document.getElementById('chat-session-label');
-          if (label) label.textContent = 'Session: ' + data.session_id.slice(0, 8);
+          var projectSel = document.getElementById('chat-project');
+          var projectName = projectSel && projectSel.value ? projectSel.options[projectSel.selectedIndex].textContent : '';
+          if (label) label.textContent = 'Session: ' + data.session_id.slice(0, 8) + (projectName ? ' | ' + projectName : '');
 
           AgentDB.toast('New session started', 'success');
         } else {

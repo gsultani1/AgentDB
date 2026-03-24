@@ -794,16 +794,23 @@ def delete_workspace_file(conn, fid):
 # SESSIONS
 # ═══════════════════════════════════════════════════════════════════
 
-def create_session(conn, workspace_id=None):
-    """Start a new session."""
+def create_session(conn, workspace_id=None, thread_id=None, provider_id=None):
+    """Start a new session, optionally linked to a conversation thread."""
     sid = _new_id()
     conn.execute(
         """INSERT INTO sessions
-           (id, started_at, status, workspace_id)
-           VALUES (?, ?, 'active', ?)""",
-        (sid, _now(), workspace_id),
+           (id, started_at, status, workspace_id, thread_id, provider_id)
+           VALUES (?, ?, 'active', ?, ?, ?)""",
+        (sid, _now(), workspace_id, thread_id, provider_id),
     )
     conn.commit()
+    # Update thread last_active if linked
+    if thread_id:
+        conn.execute(
+            "UPDATE conversation_threads SET last_active = ? WHERE id = ?",
+            (_now(), thread_id),
+        )
+        conn.commit()
     return sid
 
 
@@ -1554,3 +1561,690 @@ def update_llm_provider(conn, provider_id, **kwargs):
 def delete_llm_provider(conn, provider_id):
     conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
     conn.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CONVERSATION THREADS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_conversation_thread(conn, name, agent_id="default", provider_id=None,
+                                summary=None, metadata=None):
+    """Create a new conversation thread."""
+    tid = _new_id()
+    now = _now()
+    conn.execute(
+        """INSERT INTO conversation_threads
+           (id, name, agent_id, provider_id, created_at, last_active, summary, status, pinned, metadata)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0, ?)""",
+        (tid, name, agent_id, provider_id, now, now, summary,
+         json.dumps(metadata) if metadata else None),
+    )
+    conn.commit()
+    return tid
+
+
+def get_conversation_thread(conn, tid):
+    row = conn.execute("SELECT * FROM conversation_threads WHERE id = ?", (tid,)).fetchone()
+    return _row_to_dict(row)
+
+
+def list_conversation_threads(conn, agent_id=None, status=None, limit=100, offset=0):
+    query = "SELECT * FROM conversation_threads WHERE 1=1"
+    params = []
+    if agent_id:
+        query += " AND agent_id = ?"
+        params.append(agent_id)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    query += " ORDER BY pinned DESC, last_active DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+def update_conversation_thread(conn, tid, **kwargs):
+    sets, vals = [], []
+    for k, v in kwargs.items():
+        if v is not None:
+            sets.append(f"{k} = ?")
+            vals.append(json.dumps(v) if k == 'metadata' else v)
+    if not sets:
+        return
+    vals.append(tid)
+    conn.execute(f"UPDATE conversation_threads SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+
+
+def delete_conversation_thread(conn, tid):
+    conn.execute("DELETE FROM conversation_threads WHERE id = ?", (tid,))
+    conn.commit()
+
+
+def get_thread_messages(conn, thread_id, limit=100, offset=0):
+    """Get all short-term memories (messages) for a thread via its sessions."""
+    rows = conn.execute(
+        """SELECT stm.* FROM short_term_memory stm
+           JOIN sessions s ON stm.session_id = s.id
+           WHERE s.thread_id = ?
+           ORDER BY stm.timestamp ASC LIMIT ? OFFSET ?""",
+        (thread_id, limit, offset),
+    ).fetchall()
+    return _rows_to_list(rows)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PINNED MEMORIES
+# ═══════════════════════════════════════════════════════════════════
+
+def pin_memory(conn, memory_id, memory_table, agent_id=None, label=None,
+               priority=0, pinned_by="user"):
+    """Pin a memory so it always appears in context."""
+    pid = _new_id()
+    conn.execute(
+        """INSERT INTO pinned_memories
+           (id, memory_id, memory_table, agent_id, pinned_at, pinned_by, label, priority)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (pid, memory_id, memory_table, agent_id, _now(), pinned_by, label, priority),
+    )
+    conn.commit()
+    return pid
+
+
+def unpin_memory(conn, pin_id):
+    """Remove a memory pin."""
+    conn.execute("DELETE FROM pinned_memories WHERE id = ?", (pin_id,))
+    conn.commit()
+
+
+def list_pinned_memories(conn, agent_id=None):
+    """List all pinned memories, optionally scoped by agent."""
+    query = "SELECT * FROM pinned_memories WHERE 1=1"
+    params = []
+    if agent_id:
+        query += " AND (agent_id = ? OR agent_id IS NULL)"
+        params.append(agent_id)
+    query += " ORDER BY priority ASC"
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+def get_pinned_memory_contents(conn, agent_id=None):
+    """Get the actual memory content for all pinned memories."""
+    pins = list_pinned_memories(conn, agent_id)
+    results = []
+    for pin in pins:
+        table = pin["memory_table"]
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?",
+                           (pin["memory_id"],)).fetchone()
+        if row:
+            entry = dict(row)
+            entry["pin_id"] = pin["id"]
+            entry["pin_label"] = pin["label"]
+            entry["pin_priority"] = pin["priority"]
+            entry["tier"] = table.replace("_memory", "").replace("short_term", "short_term").replace("midterm", "midterm").replace("long_term", "long_term")
+            entry.pop("embedding", None)
+            results.append(entry)
+    return results
+
+
+def update_pin_priority(conn, pin_id, priority):
+    conn.execute("UPDATE pinned_memories SET priority = ? WHERE id = ?", (priority, pin_id))
+    conn.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# FILE ATTACHMENTS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_file_attachment(conn, filename, session_id=None, thread_id=None,
+                           mime_type=None, size_bytes=None, extraction_method=None,
+                           extracted_text=None, extracted_embedding=None,
+                           chunk_count=0, stm_ids=None, retained_path=None):
+    aid = _new_id()
+    conn.execute(
+        """INSERT INTO file_attachments
+           (id, session_id, thread_id, filename, mime_type, size_bytes,
+            extraction_method, extracted_text, extracted_embedding,
+            chunk_count, stm_ids, uploaded_at, retained_path)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (aid, session_id, thread_id, filename, mime_type, size_bytes,
+         extraction_method, extracted_text, extracted_embedding,
+         chunk_count, json.dumps(stm_ids) if stm_ids else None, _now(), retained_path),
+    )
+    conn.commit()
+    return aid
+
+
+def get_file_attachment(conn, aid):
+    row = conn.execute("SELECT * FROM file_attachments WHERE id = ?", (aid,)).fetchone()
+    return _row_to_dict(row)
+
+
+def list_file_attachments(conn, session_id=None, thread_id=None, limit=100, offset=0):
+    query = "SELECT * FROM file_attachments WHERE 1=1"
+    params = []
+    if session_id:
+        query += " AND session_id = ?"
+        params.append(session_id)
+    if thread_id:
+        query += " AND thread_id = ?"
+        params.append(thread_id)
+    query += " ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SKILL EXECUTIONS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_skill_execution(conn, skill_id, agent_id="default", session_id=None,
+                           implementation_id=None, inputs=None):
+    eid = _new_id()
+    conn.execute(
+        """INSERT INTO skill_executions
+           (id, skill_id, implementation_id, agent_id, session_id, started_at, status, inputs)
+           VALUES (?, ?, ?, ?, ?, ?, 'running', ?)""",
+        (eid, skill_id, implementation_id, agent_id, session_id, _now(),
+         json.dumps(inputs) if inputs else None),
+    )
+    conn.commit()
+    return eid
+
+
+def complete_skill_execution(conn, exec_id, status, outputs=None, stdout=None,
+                              stderr=None, exit_code=None, resource_usage=None):
+    now = _now()
+    # Calculate duration
+    row = conn.execute("SELECT started_at FROM skill_executions WHERE id = ?",
+                       (exec_id,)).fetchone()
+    duration_ms = None
+    if row:
+        from datetime import datetime as dt
+        try:
+            started = dt.fromisoformat(row[0])
+            duration_ms = int((dt.fromisoformat(now) - started).total_seconds() * 1000)
+        except (ValueError, TypeError):
+            pass
+    conn.execute(
+        """UPDATE skill_executions
+           SET status = ?, completed_at = ?, duration_ms = ?, outputs = ?,
+               stdout = ?, stderr = ?, exit_code = ?, resource_usage = ?
+           WHERE id = ?""",
+        (status, now, duration_ms,
+         json.dumps(outputs) if outputs else None,
+         stdout, stderr, exit_code,
+         json.dumps(resource_usage) if resource_usage else None,
+         exec_id),
+    )
+    conn.commit()
+
+
+def list_skill_executions(conn, skill_id=None, agent_id=None, status=None,
+                          limit=100, offset=0):
+    query = "SELECT * FROM skill_executions WHERE 1=1"
+    params = []
+    if skill_id:
+        query += " AND skill_id = ?"
+        params.append(skill_id)
+    if agent_id:
+        query += " AND agent_id = ?"
+        params.append(agent_id)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    query += " ORDER BY started_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+def get_skill_execution(conn, exec_id):
+    row = conn.execute("SELECT * FROM skill_executions WHERE id = ?",
+                       (exec_id,)).fetchone()
+    return _row_to_dict(row)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CHANNEL CONFIGS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_channel_config(conn, name, channel_type, config, agent_id="default",
+                           authorized_senders=None, polling_interval_seconds=60,
+                           is_default_notification=False):
+    cid = _new_id()
+    now = _now()
+    conn.execute(
+        """INSERT INTO channel_configs
+           (id, name, channel_type, config, authorized_senders, agent_id,
+            is_active, is_default_notification, polling_interval_seconds,
+            created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)""",
+        (cid, name, channel_type,
+         json.dumps(config) if isinstance(config, dict) else config,
+         json.dumps(authorized_senders) if authorized_senders else None,
+         agent_id, 1 if is_default_notification else 0,
+         polling_interval_seconds, now, now),
+    )
+    conn.commit()
+    return cid
+
+
+def get_channel_config(conn, cid):
+    row = conn.execute("SELECT * FROM channel_configs WHERE id = ?", (cid,)).fetchone()
+    return _row_to_dict(row)
+
+
+def list_channel_configs(conn, channel_type=None, agent_id=None, active_only=True):
+    query = "SELECT * FROM channel_configs WHERE 1=1"
+    params = []
+    if active_only:
+        query += " AND is_active = 1"
+    if channel_type:
+        query += " AND channel_type = ?"
+        params.append(channel_type)
+    if agent_id:
+        query += " AND agent_id = ?"
+        params.append(agent_id)
+    query += " ORDER BY name"
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+def update_channel_config(conn, cid, **kwargs):
+    sets, vals = [], []
+    for k, v in kwargs.items():
+        if v is not None:
+            sets.append(f"{k} = ?")
+            vals.append(json.dumps(v) if k in ('config', 'authorized_senders') and isinstance(v, (dict, list)) else v)
+    if not sets:
+        return
+    sets.append("updated_at = ?")
+    vals.append(_now())
+    vals.append(cid)
+    conn.execute(f"UPDATE channel_configs SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+
+
+def delete_channel_config(conn, cid):
+    conn.execute("DELETE FROM channel_configs WHERE id = ?", (cid,))
+    conn.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CHANNEL MESSAGES
+# ═══════════════════════════════════════════════════════════════════
+
+def create_channel_message(conn, channel_id, direction, content, sender=None,
+                           recipient=None, raw_payload=None, session_id=None,
+                           task_id=None, status="delivered"):
+    mid = _new_id()
+    conn.execute(
+        """INSERT INTO channel_messages
+           (id, channel_id, direction, sender, recipient, content,
+            raw_payload, session_id, task_id, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (mid, channel_id, direction, sender, recipient, content,
+         json.dumps(raw_payload) if raw_payload else None,
+         session_id, task_id, status, _now()),
+    )
+    conn.commit()
+    return mid
+
+
+def list_channel_messages(conn, channel_id, limit=100, offset=0):
+    return _rows_to_list(conn.execute(
+        """SELECT * FROM channel_messages WHERE channel_id = ?
+           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+        (channel_id, limit, offset),
+    ).fetchall())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTONOMOUS TASKS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_autonomous_task(conn, title, goal, agent_id="default", provider_id=None,
+                           max_iterations=50, max_duration_minutes=60,
+                           require_approval=False, notification_channel_id=None,
+                           creation_channel="ui"):
+    tid = _new_id()
+    now = _now()
+    conn.execute(
+        """INSERT INTO autonomous_tasks
+           (id, title, goal, agent_id, provider_id, status, max_iterations,
+            max_duration_minutes, require_approval, notification_channel_id,
+            creation_channel, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)""",
+        (tid, title, goal, agent_id, provider_id, max_iterations,
+         max_duration_minutes, 1 if require_approval else 0,
+         notification_channel_id, creation_channel, now, now),
+    )
+    conn.commit()
+    return tid
+
+
+def get_autonomous_task(conn, tid):
+    row = conn.execute("SELECT * FROM autonomous_tasks WHERE id = ?", (tid,)).fetchone()
+    return _row_to_dict(row)
+
+
+def list_autonomous_tasks(conn, status=None, agent_id=None, limit=100, offset=0):
+    query = "SELECT * FROM autonomous_tasks WHERE 1=1"
+    params = []
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    if agent_id:
+        query += " AND agent_id = ?"
+        params.append(agent_id)
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+def update_autonomous_task(conn, tid, **kwargs):
+    sets, vals = [], []
+    for k, v in kwargs.items():
+        if v is not None:
+            sets.append(f"{k} = ?")
+            vals.append(json.dumps(v) if k == 'plan' else v)
+    if not sets:
+        return
+    sets.append("updated_at = ?")
+    vals.append(_now())
+    vals.append(tid)
+    conn.execute(f"UPDATE autonomous_tasks SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+
+
+def delete_autonomous_task(conn, tid):
+    conn.execute("DELETE FROM autonomous_tasks WHERE id = ?", (tid,))
+    conn.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TASK STEPS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_task_step(conn, task_id, step_number, description, llm_reasoning=None):
+    sid = _new_id()
+    conn.execute(
+        """INSERT INTO task_steps
+           (id, task_id, step_number, description, status, llm_reasoning, created_at)
+           VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
+        (sid, task_id, step_number, description, llm_reasoning, _now()),
+    )
+    conn.commit()
+    return sid
+
+
+def update_task_step(conn, step_id, **kwargs):
+    sets, vals = [], []
+    for k, v in kwargs.items():
+        if v is not None:
+            sets.append(f"{k} = ?")
+            vals.append(json.dumps(v) if k == 'result' else v)
+    if not sets:
+        return
+    vals.append(step_id)
+    conn.execute(f"UPDATE task_steps SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+
+
+def list_task_steps(conn, task_id):
+    return _rows_to_list(conn.execute(
+        "SELECT * FROM task_steps WHERE task_id = ? ORDER BY step_number",
+        (task_id,),
+    ).fetchall())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TASK ACTIONS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_task_action(conn, task_id, action_type, step_id=None, inputs=None):
+    aid = _new_id()
+    conn.execute(
+        """INSERT INTO task_actions
+           (id, task_id, step_id, action_type, inputs, status, created_at)
+           VALUES (?, ?, ?, ?, ?, 'pending', ?)""",
+        (aid, task_id, step_id, action_type,
+         json.dumps(inputs) if inputs else None, _now()),
+    )
+    conn.commit()
+    return aid
+
+
+def complete_task_action(conn, action_id, status, outputs=None, error=None,
+                          duration_ms=None):
+    conn.execute(
+        """UPDATE task_actions
+           SET status = ?, outputs = ?, error = ?, duration_ms = ?
+           WHERE id = ?""",
+        (status, json.dumps(outputs) if outputs else None,
+         error, duration_ms, action_id),
+    )
+    conn.commit()
+
+
+def list_task_actions(conn, task_id, step_id=None, limit=100, offset=0):
+    query = "SELECT * FROM task_actions WHERE task_id = ?"
+    params = [task_id]
+    if step_id:
+        query += " AND step_id = ?"
+        params.append(step_id)
+    query += " ORDER BY created_at ASC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# FILE ACCESS GRANTS
+# ═══════════════════════════════════════════════════════════════════
+
+def create_file_access_grant(conn, directory_path, agent_id="default",
+                              permission="read", notes=None):
+    gid = _new_id()
+    conn.execute(
+        """INSERT INTO file_access_grants
+           (id, agent_id, directory_path, permission, granted_at, granted_by, notes)
+           VALUES (?, ?, ?, ?, ?, 'operator', ?)""",
+        (gid, agent_id, directory_path, permission, _now(), notes),
+    )
+    conn.commit()
+    return gid
+
+
+def list_file_access_grants(conn, agent_id=None):
+    query = "SELECT * FROM file_access_grants WHERE 1=1"
+    params = []
+    if agent_id:
+        query += " AND agent_id = ?"
+        params.append(agent_id)
+    query += " ORDER BY granted_at DESC"
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+def delete_file_access_grant(conn, gid):
+    conn.execute("DELETE FROM file_access_grants WHERE id = ?", (gid,))
+    conn.commit()
+
+
+def check_file_access(conn, agent_id, file_path, require_write=False):
+    """Check if an agent has access to a given file path."""
+    grants = list_file_access_grants(conn, agent_id)
+    import os
+    file_path = os.path.abspath(file_path)
+    for grant in grants:
+        grant_path = os.path.abspath(grant["directory_path"])
+        if file_path.startswith(grant_path):
+            if require_write and grant["permission"] != "read_write":
+                continue
+            return True
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SHELL COMMAND LOG
+# ═══════════════════════════════════════════════════════════════════
+
+def create_shell_command_log(conn, command, agent_id="default", task_id=None,
+                              working_dir=None):
+    lid = _new_id()
+    conn.execute(
+        """INSERT INTO shell_command_log
+           (id, agent_id, task_id, command, working_dir, started_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (lid, agent_id, task_id, command, working_dir, _now()),
+    )
+    conn.commit()
+    return lid
+
+
+def complete_shell_command_log(conn, log_id, stdout=None, stderr=None,
+                                exit_code=None, duration_ms=None):
+    conn.execute(
+        """UPDATE shell_command_log
+           SET stdout = ?, stderr = ?, exit_code = ?, duration_ms = ?,
+               completed_at = ?
+           WHERE id = ?""",
+        (stdout, stderr, exit_code, duration_ms, _now(), log_id),
+    )
+    conn.commit()
+
+
+def list_shell_command_log(conn, agent_id=None, task_id=None, limit=100, offset=0):
+    query = "SELECT * FROM shell_command_log WHERE 1=1"
+    params = []
+    if agent_id:
+        query += " AND agent_id = ?"
+        params.append(agent_id)
+    if task_id:
+        query += " AND task_id = ?"
+        params.append(task_id)
+    query += " ORDER BY started_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return _rows_to_list(conn.execute(query, params).fetchall())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MEMORY EXPORT
+# ═══════════════════════════════════════════════════════════════════
+
+def export_memories(conn, tier="all", agent_id=None, format="json",
+                    include_embeddings=False, filters=None):
+    """Export memories in the requested format."""
+    if filters is None:
+        filters = {}
+    tables = {
+        "short": "short_term_memory",
+        "mid": "midterm_memory",
+        "long": "long_term_memory",
+    }
+    if tier == "all":
+        tiers_to_export = list(tables.keys())
+    else:
+        tiers_to_export = [tier] if tier in tables else list(tables.keys())
+
+    results = []
+    for t in tiers_to_export:
+        table = tables[t]
+        query = f"SELECT * FROM {table} WHERE 1=1"
+        params = []
+        if agent_id:
+            query += " AND (agent_id = ? OR agent_id = 'shared')"
+            params.append(agent_id)
+        if filters.get("confidence_min") and t != "short":
+            query += " AND confidence >= ?"
+            params.append(float(filters["confidence_min"]))
+        if filters.get("category") and t != "short":
+            query += " AND category = ?"
+            params.append(filters["category"])
+        query += " ORDER BY " + ("timestamp" if t == "short" else "created_at") + " DESC"
+        rows = conn.execute(query, params).fetchall()
+        for row in rows:
+            entry = dict(row)
+            entry["tier"] = t
+            if not include_embeddings:
+                entry.pop("embedding", None)
+            results.append(entry)
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════════
+# BATCH MEMORY OPERATIONS
+# ═══════════════════════════════════════════════════════════════════
+
+def batch_pin_memories(conn, memory_ids_with_tables, agent_id=None, label=None):
+    """Pin multiple memories at once. memory_ids_with_tables: list of (id, table)."""
+    pin_ids = []
+    for memory_id, memory_table in memory_ids_with_tables:
+        pid = pin_memory(conn, memory_id, memory_table, agent_id=agent_id, label=label)
+        pin_ids.append(pid)
+    return pin_ids
+
+
+def batch_tag_memories(conn, memory_ids_with_tables, tag_id):
+    """Apply a tag to multiple memories."""
+    for memory_id, memory_table in memory_ids_with_tables:
+        aid = _new_id()
+        conn.execute(
+            """INSERT INTO tag_assignments (id, tag_id, target_id, target_table)
+               VALUES (?, ?, ?, ?)""",
+            (aid, tag_id, memory_id, memory_table),
+        )
+    conn.commit()
+
+
+def batch_delete_memories(conn, memory_ids_with_tables):
+    """Delete multiple memories. STM entries are set to expired; MTM/LTM are deleted."""
+    for memory_id, memory_table in memory_ids_with_tables:
+        if memory_table == "short_term_memory":
+            conn.execute(
+                "UPDATE short_term_memory SET status = 'expired' WHERE id = ?",
+                (memory_id,),
+            )
+        else:
+            conn.execute(f"DELETE FROM {memory_table} WHERE id = ?", (memory_id,))
+    conn.commit()
+
+
+def batch_promote_memories(conn, memory_ids, from_tier):
+    """Promote memories to the next tier. Returns list of new IDs."""
+    # This is a simplified batch promote — real promotion uses the consolidation engine
+    promoted = []
+    for mid in memory_ids:
+        if from_tier == "short":
+            row = conn.execute("SELECT * FROM short_term_memory WHERE id = ?",
+                               (mid,)).fetchone()
+            if row:
+                entry = dict(row)
+                new_id = _new_id()
+                conn.execute(
+                    """INSERT INTO midterm_memory
+                       (id, agent_id, content, embedding, confidence, source_ids, category)
+                       VALUES (?, ?, ?, ?, 0.5, ?, 'observation')""",
+                    (new_id, entry["agent_id"], entry["content"],
+                     entry.get("embedding"), json.dumps([mid])),
+                )
+                conn.execute(
+                    "UPDATE short_term_memory SET status = 'promoted' WHERE id = ?",
+                    (mid,),
+                )
+                promoted.append(new_id)
+        elif from_tier == "mid":
+            row = conn.execute("SELECT * FROM midterm_memory WHERE id = ?",
+                               (mid,)).fetchone()
+            if row:
+                entry = dict(row)
+                new_id = _new_id()
+                conn.execute(
+                    """INSERT INTO long_term_memory
+                       (id, agent_id, content, embedding, confidence, provenance, category)
+                       VALUES (?, ?, ?, ?, ?, ?, 'fact')""",
+                    (new_id, entry["agent_id"], entry["content"],
+                     entry.get("embedding"), entry.get("confidence", 0.9),
+                     json.dumps({"promoted_from": mid})),
+                )
+                conn.execute("DELETE FROM midterm_memory WHERE id = ?", (mid,))
+                promoted.append(new_id)
+    conn.commit()
+    return promoted

@@ -10,7 +10,7 @@ A sovereign, local-first agent memory system with tiered knowledge, an empirical
 
 AgentDB gives AI agents persistent, structured memory. It stores what the agent learns across conversations, organizes it into short-term, midterm, and long-term tiers, and retrieves the most relevant context when the agent needs it. The entire system lives in a single portable SQLite file.
 
-AgentDB doesn't accumulate conversation history as context. Every turn, the retrieval pipeline queries the database for relevant memories, injects them as a fresh context payload, and discards the previous turn's context. The LLM sees exactly what the pipeline determines is relevant — scored and ranked across all three tiers, weighted by confidence, recency, and graph proximity. A conversation that runs for six hours gets the same retrieval quality on message 500 as it did on message 5.
+The defining architectural principle is **demand-constructed context**. AgentDB doesn't accumulate conversation history in a growing context window and compress it when the window fills (the accumulate-and-compact model). Instead, every turn constructs a fresh, purpose-built context payload by querying the database for memories, entities, goals, and skills relevant to the current query. Nothing accumulates. Nothing gets compressed. The LLM sees exactly what the retrieval pipeline determines is relevant — scored and ranked across all three tiers, weighted by confidence, recency, and graph proximity. A conversation that runs for six hours gets the same retrieval quality on message 500 as it did on message 5.
 
 ### Core Capabilities
 
@@ -153,7 +153,7 @@ AgentDB/
     ├── API_REFERENCE.md               # Full API endpoint reference
     ├── SCHEMA_REFERENCE.md            # Database schema details
     ├── DEVELOPMENT.md                 # Development guide
-    └── AgentDB_PRD_v1.5.md            # Product requirements document
+    └── AgentDB_PRD_v1.6.md            # Product requirements document
 ```
 
 ---
@@ -199,8 +199,8 @@ The `agents` table registers every agent that uses the system. The `relations` t
 **Workspace Awareness** — `workspaces`, `workspace_files`
 Anchors the agent's understanding of local file environments.
 
-**Operational Support** — `sessions`, `meta_config`, `contradictions`, `audit_log`, `feedback`, `context_snapshots`, `notification_queue`, `scheduled_tasks`
-Sessions group interactions. Config is stored in-database for portability. Every write operation is logged to the immutable audit log. The notification queue holds proactive alerts. Scheduled tasks power interval-based automation.
+**Operational Support** — `sessions`, `meta_config`, `llm_providers`, `contradictions`, `audit_log`, `feedback`, `context_snapshots`, `notification_queue`, `scheduled_tasks`
+Sessions group interactions. Config is stored in-database for portability. The `llm_providers` table is the canonical source for LLM configuration (flat `meta_config` LLM keys are synced for backward compatibility but deprecated). Every write operation is logged to the immutable audit log. The notification queue holds proactive alerts. Scheduled tasks power interval-based automation.
 
 **Performance** — `views`, `embeddings_cache`
 Named graph projections for the mind map. Precomputed similarity scores.
@@ -248,13 +248,10 @@ python -m agentdb.cli serve
 
 ## Configuration
 
-All configuration lives in the `meta_config` table inside the database. Key settings:
+System configuration lives in the `meta_config` table inside the database. LLM provider configuration lives in the `llm_providers` table (the row with `is_default = 1` is used by the middleware). Key settings:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `llm_provider` | `claude` | LLM backend: `claude`, `openai`, `local` |
-| `llm_model` | `claude-sonnet-4-20250514` | Model identifier |
-| `llm_api_key` | (empty) | API key for the configured provider |
 | `embedding_model` | `all-MiniLM-L6-v2` | Local embedding model (384 dimensions) |
 | `consolidation_interval_seconds` | `300` | How often consolidation runs |
 | `promotion_confidence_threshold` | `0.8` | Minimum confidence for midterm→long promotion |
@@ -276,11 +273,11 @@ All configuration lives in the `meta_config` table inside the database. Key sett
 Set any value via CLI:
 
 ```bash
-python -m agentdb.cli config set llm_provider openai
-python -m agentdb.cli config set llm_api_key sk-your-key-here
+python -m agentdb.cli config set embedding_model all-MiniLM-L6-v2
+python -m agentdb.cli config set consolidation_interval_seconds 600
 ```
 
-Or via the Settings page in the management UI.
+Or via the Settings page in the management UI. LLM providers are managed through the provider management interface in Settings, not through flat config keys.
 
 ---
 
@@ -382,9 +379,25 @@ The browser-based management UI at `http://127.0.0.1:8420/` provides:
 
 **Headless mode** (available now): Run the Python backend standalone. The HTTP server, agent API, MCP server, and management UI are available on localhost. Suitable for servers, edge devices, and environments without a GUI.
 
-**Desktop mode** (in development): Tauri 2.x shell bundles the Python backend as a sidecar, manages process lifecycle, provides system tray integration with health monitoring, and auto-restarts on failure.
+**Desktop mode** (Phase 8): Tauri 2.x shell bundles the Python backend as a sidecar, manages process lifecycle, provides system tray integration with health monitoring, and auto-restarts on failure. The Tauri shell is scaffolded with sidecar spawning and health monitoring implemented.
 
 Both modes use the identical `.db` file. A database created in one mode works in the other.
+
+---
+
+## Implementation Status
+
+| Phase | Status | Scope |
+|-------|--------|-------|
+| 1. Foundation | Complete | Schema (24 tables + FTS5), triggers, CRUD, embeddings, CLI |
+| 2. Agent Communication & MCP | Complete | MCP server, REST agent API, multi-strategy retrieval, middleware |
+| 3. Consolidation Engine | Complete | STM→MTM→LTM promotion, decay, contradiction detection, feedback |
+| 4. Markdown Authoring | Complete | 4 document types, chunking, deduplication, file watcher |
+| 5. Migration Pipeline | Complete | ChatGPT, Claude, JSONL parsers, 5-phase pipeline |
+| 6. User Interface | Complete | 15-view management SPA with chat, mind map, DB console |
+| 7. Performance Engineering | In Progress | Vectorized clustering, ANN indexing, cross-encoder reranker, query optimization |
+| 8. Agent Execution Layer | Scaffolded | Tauri shell, sidecar lifecycle, system tray, native dialogs |
+| 9–11 | Planned | Workspace awareness, sleep-time processing, encryption hardening |
 
 ---
 
@@ -410,10 +423,10 @@ Detailed documentation is in the [`docs/`](docs/) directory:
 - [API_REFERENCE.md](docs/API_REFERENCE.md) — Full HTTP endpoint reference
 - [SCHEMA_REFERENCE.md](docs/SCHEMA_REFERENCE.md) — Database table definitions
 - [DEVELOPMENT.md](docs/DEVELOPMENT.md) — Development setup and contribution guide
-- [AgentDB_PRD_v1.5.md](docs/AgentDB_PRD_v1.5.md) — Product requirements document
+- [AgentDB_PRD_v1.6.md](docs/AgentDB_PRD_v1.6.md) — Product requirements document
 
 ---
 
 ## License
 
-Proprietary — Sultani Investments, LLC. All rights reserved.
+MIT LICENSE HOMIE — Sultani Investments, LLC. All rights reserved.
