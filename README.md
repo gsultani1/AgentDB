@@ -2,7 +2,7 @@
 
 A sovereign, local-first agent memory system with tiered knowledge, an empirical knowledge graph, MCP-native agent communication, multi-agent support, markdown authoring, and external chat migration.
 
-**Proprietary — Sultani Investments, LLC**
+**MIT License — Sultani Investments, LLC**
 
 ---
 
