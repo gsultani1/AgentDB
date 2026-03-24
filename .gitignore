@@ -48,10 +48,11 @@ package-lock.json
 models/
 
 # Internal Documentation
+docs/AgentDB_PRD.docx
 docs/AgentDB_PRD_v1.3.md
 docs/AgentDB_PRD_v1.4.md
-docs/AgentDB_PRD.docx
 docs/AgentDB_PRD_v1.5.md
+docs/AgentDB_PRD_v1.6.md
 docs/AgentDB_ProjectToDate_*.md
 docs/ARCHITECTURE_AMENDMENTS.md
 
