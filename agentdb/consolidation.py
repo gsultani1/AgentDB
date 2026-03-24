@@ -51,6 +51,10 @@ def run_consolidation_cycle(conn, config=None):
     stm_results = consolidate_short_to_mid(conn, config)
     results["short_to_mid_promoted"] = stm_results["promoted"]
 
+    # Phase 1.5: Boost confidence of surviving midterm entries
+    boost_results = boost_surviving_midterm(conn, config)
+    results["confidence_boosted"] = boost_results["boosted"]
+
     # Phase 2: Midterm-to-long-term promotion
     mtl_results = promote_mid_to_long(conn, config)
     results["mid_to_long_promoted"] = mtl_results["promoted"]
@@ -159,6 +163,54 @@ def consolidate_short_to_mid(conn, config=None):
         promoted_count += 1
 
     return {"promoted": promoted_count}
+
+
+def boost_surviving_midterm(conn, config=None):
+    """
+    Boost confidence of midterm entries that have survived across consolidation
+    cycles. Entries gain confidence based on how many cycles they've survived
+    (approximated by age in hours since creation).
+
+    Boost formula:
+        cycles_survived = hours_since_creation / consolidation_interval_hours
+        boost = min(cycles_survived * 0.05, 0.3)
+        new_confidence = min(confidence + boost, 0.95)
+
+    This ensures memories that persist across multiple sleep cycles gradually
+    climb toward the LTM promotion threshold (default 0.8), rewarding
+    durability without requiring explicit endorsement.
+    """
+    if config is None:
+        config = _load_consolidation_config(conn)
+
+    # How often consolidation runs (default 5 min = 300s)
+    interval_seconds = int(config.get("consolidation_interval_seconds",
+                           crud.get_config_value(conn, "consolidation_interval_seconds", "300")))
+    interval_hours = max(interval_seconds / 3600.0, 0.05)  # floor to avoid div-by-zero
+
+    rows = conn.execute(
+        "SELECT id, confidence, created_at FROM midterm_memory"
+    ).fetchall()
+
+    now = datetime.utcnow()
+    boosted = 0
+
+    for row in rows:
+        created = datetime.fromisoformat(row["created_at"])
+        hours_alive = (now - created).total_seconds() / 3600.0
+        cycles_survived = hours_alive / interval_hours
+
+        if cycles_survived < 1.0:
+            continue  # Too new — hasn't survived a full cycle yet
+
+        boost = min(cycles_survived * 0.05, 0.3)
+        new_confidence = min(row["confidence"] + boost, 0.95)
+
+        if new_confidence > row["confidence"]:
+            crud.update_midterm_memory(conn, row["id"], confidence=round(new_confidence, 4))
+            boosted += 1
+
+    return {"boosted": boosted}
 
 
 def promote_mid_to_long(conn, config=None):

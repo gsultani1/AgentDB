@@ -258,7 +258,9 @@
 
   V.runMaint = async function(action) {
     AgentDB.toast('Running ' + action + '...', 'info');
-    var r = await AgentDB.api('POST', '/api/maintenance/' + action);
+    var urlMap = { sleep: 'sleep-cycle', integrity_check: 'integrity-check' };
+    var endpoint = urlMap[action] || action;
+    var r = await AgentDB.api('POST', '/api/maintenance/' + endpoint);
     if (r.status === 'ok') {
       AgentDB.toast(action + ' completed', 'success');
     } else {
