@@ -1495,6 +1495,30 @@ def get_default_llm_provider(conn):
     row = conn.execute("SELECT * FROM llm_providers WHERE is_default = 1 LIMIT 1").fetchone()
     return dict(row) if row else None
 
+def _sync_default_provider_to_config(conn):
+    """Keep meta_config flat keys in sync with the current default provider."""
+    row = conn.execute(
+        "SELECT provider_type, api_key, model, endpoint FROM llm_providers WHERE is_default = 1 LIMIT 1"
+    ).fetchone()
+    if row:
+        row = dict(row) if hasattr(row, 'keys') else {
+            'provider_type': row[0], 'api_key': row[1], 'model': row[2], 'endpoint': row[3]
+        }
+        now = _now()
+        for cfg_key, prov_key in [
+            ("llm_provider", "provider_type"),
+            ("llm_api_key", "api_key"),
+            ("llm_model", "model"),
+            ("llm_endpoint", "endpoint"),
+        ]:
+            val = row.get(prov_key, "") or ""
+            conn.execute(
+                "UPDATE meta_config SET value = ?, updated_at = ? WHERE key = ?",
+                (val, now, cfg_key),
+            )
+        conn.commit()
+
+
 def create_llm_provider(conn, name, provider_type, model, api_key='', endpoint='', is_default=False):
     pid = str(uuid.uuid4())
     if is_default:
@@ -1503,6 +1527,8 @@ def create_llm_provider(conn, name, provider_type, model, api_key='', endpoint='
         "INSERT INTO llm_providers (id, name, provider_type, api_key, model, endpoint, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (pid, name, provider_type, api_key, model, endpoint, 1 if is_default else 0))
     conn.commit()
+    if is_default:
+        _sync_default_provider_to_config(conn)
     return pid
 
 def update_llm_provider(conn, provider_id, **kwargs):
@@ -1518,6 +1544,12 @@ def update_llm_provider(conn, provider_id, **kwargs):
     vals.append(provider_id)
     conn.execute(f"UPDATE llm_providers SET {', '.join(sets)} WHERE id = ?", vals)
     conn.commit()
+    # Sync if this provider is now or was already the default
+    row = conn.execute(
+        "SELECT is_default FROM llm_providers WHERE id = ?", (provider_id,)
+    ).fetchone()
+    if row and (row[0] or kwargs.get('is_default')):
+        _sync_default_provider_to_config(conn)
 
 def delete_llm_provider(conn, provider_id):
     conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))

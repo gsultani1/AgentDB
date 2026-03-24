@@ -1634,6 +1634,8 @@ def run_server(db_path, host="127.0.0.1", port=8420):
             (str(_uuid_mod.uuid4()), _k, _v, _now),
         )
     conn.commit()
+    # Sync meta_config flat keys with the current default provider
+    crud._sync_default_provider_to_config(conn)
     conn.close()
 
     # Pre-warm embedding model in background thread to eliminate cold-start delay
