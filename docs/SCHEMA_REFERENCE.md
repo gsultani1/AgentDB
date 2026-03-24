@@ -1,6 +1,6 @@
 # AgentDB Schema Reference
 
-Complete field-level reference for all 23 tables. Version 1.4.
+Complete field-level reference for all database tables. Current as of v1.6 implementation.
 
 ---
 
@@ -343,16 +343,195 @@ Precomputed similarity scores.
 
 ---
 
+---
+
+## Additional Operational Tables (v1.5+)
+
+### llm_providers
+
+Canonical registry of configured LLM providers. Replaces flat meta_config LLM keys.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| name | TEXT | NOT NULL | Human-readable name (e.g., "Production Claude") |
+| provider_type | TEXT | NOT NULL, CHECK IN (claude, openai, local) | Provider classification |
+| api_key | TEXT | | Provider API key |
+| model | TEXT | | Model identifier |
+| endpoint | TEXT | | Custom endpoint URL |
+| is_default | INTEGER | NOT NULL, DEFAULT 0 | 1 for active default provider |
+| description | TEXT | | Operator notes |
+| created_at | TEXT | NOT NULL, DEFAULT now | Registration timestamp |
+
+### conversation_threads
+
+Named, resumable conversation groupings spanning multiple sessions.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| name | TEXT | NOT NULL | Thread name |
+| agent_id | TEXT | | References agents.id |
+| created_at | DATETIME | NOT NULL, DEFAULT now | Creation timestamp |
+| last_active | DATETIME | | Last message timestamp |
+| summary | TEXT | | Auto-generated rolling summary |
+| summary_embedding | BLOB | | Vector of summary |
+| status | TEXT | NOT NULL, DEFAULT 'active' | active / archived |
+| pinned | BOOLEAN | NOT NULL, DEFAULT 0 | Pinned to top |
+| metadata | JSON | | Operator-defined labels |
+
+### file_attachments
+
+Files uploaded through the chat console with extracted content.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| session_id | TEXT | FK → sessions.id | Associated session |
+| filename | TEXT | NOT NULL | Original filename |
+| mime_type | TEXT | | Detected MIME type |
+| size_bytes | INTEGER | | File size |
+| extraction_method | TEXT | | pdf / text / code / csv |
+| extracted_text | TEXT | | Full extracted content |
+| extracted_embedding | BLOB | | Vector of extracted content |
+| chunk_count | INTEGER | | Chunks created in STM |
+| stm_ids | JSON | | Array of STM IDs from this file |
+| uploaded_at | DATETIME | NOT NULL, DEFAULT now | Upload timestamp |
+
+### channel_configs
+
+External messaging channel configurations.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| name | TEXT | NOT NULL | Channel display name |
+| channel_type | TEXT | NOT NULL | email / whatsapp / sms / imessage |
+| config | JSON | | Channel-specific credentials and settings |
+| authorized_senders | JSON | | Allowed sender addresses/numbers |
+| is_active | BOOLEAN | NOT NULL, DEFAULT 0 | Whether channel is enabled |
+| created_at | DATETIME | NOT NULL, DEFAULT now | Registration timestamp |
+
+### channel_messages
+
+Immutable log of inbound and outbound messages across channels.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| channel_id | TEXT | FK → channel_configs.id | Source channel |
+| direction | TEXT | NOT NULL | inbound / outbound |
+| sender | TEXT | | Sender address/number |
+| content | TEXT | NOT NULL | Message text |
+| timestamp | DATETIME | NOT NULL, DEFAULT now | Message timestamp |
+
+### autonomous_tasks
+
+Task queue for background autonomous execution.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| title | TEXT | NOT NULL | Task title |
+| goal | TEXT | NOT NULL | What to accomplish |
+| agent_id | TEXT | | Assigned agent |
+| status | TEXT | NOT NULL, DEFAULT 'pending' | pending / running / paused / completed / failed / cancelled / timeout |
+| plan | JSON | | Structured execution plan |
+| max_iterations | INTEGER | DEFAULT 50 | Safety limit |
+| created_at | DATETIME | NOT NULL, DEFAULT now | Creation timestamp |
+
+### task_steps
+
+Individual steps within an autonomous task.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| task_id | TEXT | FK → autonomous_tasks.id | Parent task |
+| step_number | INTEGER | NOT NULL | Step ordering |
+| description | TEXT | | Step description |
+| status | TEXT | NOT NULL, DEFAULT 'pending' | Step lifecycle |
+| reasoning | TEXT | | LLM reasoning trace |
+| result | JSON | | Step output |
+| created_at | DATETIME | NOT NULL, DEFAULT now | Timestamp |
+
+### task_actions
+
+Atomic action log for tool calls during task execution.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| task_id | TEXT | FK → autonomous_tasks.id | Parent task |
+| step_id | TEXT | FK → task_steps.id | Parent step |
+| action_type | TEXT | NOT NULL | file_read / file_write / shell / skill / memory / web |
+| inputs | JSON | | Action inputs |
+| outputs | JSON | | Action results |
+| status | TEXT | NOT NULL | success / failed / blocked |
+| created_at | DATETIME | NOT NULL, DEFAULT now | Timestamp |
+
+### file_access_grants
+
+Operator-approved filesystem directories for agent access.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| agent_id | TEXT | | FK → agents.id; null = all agents |
+| directory_path | TEXT | NOT NULL | Absolute path |
+| permissions | TEXT | NOT NULL, DEFAULT 'read' | read / read_write |
+| recursive | BOOLEAN | NOT NULL, DEFAULT 1 | Include subdirectories |
+| created_at | DATETIME | NOT NULL, DEFAULT now | Grant creation time |
+
+### shell_command_log
+
+Immutable log of shell commands executed by agents.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| task_id | TEXT | | FK → autonomous_tasks.id |
+| agent_id | TEXT | | FK → agents.id |
+| command | TEXT | NOT NULL | Command string |
+| working_directory | TEXT | | Execution directory |
+| stdout | TEXT | | Captured stdout |
+| stderr | TEXT | | Captured stderr |
+| exit_code | INTEGER | | Process exit code |
+| executed_at | DATETIME | NOT NULL, DEFAULT now | Execution timestamp |
+| duration_ms | INTEGER | | Wall-clock time |
+| status | TEXT | NOT NULL | success / failed / timeout / blocked |
+
+### skill_executions
+
+Log of every skill execution attempt.
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| id | TEXT | PRIMARY KEY | UUID |
+| skill_id | TEXT | FK → skills.id | Executed skill |
+| agent_id | TEXT | | Executing agent |
+| started_at | DATETIME | NOT NULL, DEFAULT now | Start timestamp |
+| completed_at | DATETIME | | End timestamp |
+| duration_ms | INTEGER | | Wall-clock time |
+| status | TEXT | NOT NULL | success / failed / timeout |
+| inputs | JSON | | Input values |
+| outputs | JSON | | Output values |
+| stdout | TEXT | | Captured stdout |
+| stderr | TEXT | | Captured stderr |
+| exit_code | INTEGER | | Process exit code |
+
+---
+
 ## FTS5 Virtual Tables
 
 For BM25 keyword search (created if SQLite FTS5 extension is available):
 
-- `stm_fts` — indexes `short_term_memory.content`
-- `mtm_fts` — indexes `midterm_memory.content`
-- `ltm_fts` — indexes `long_term_memory.content`
+- `short_term_memory_fts` — indexes `short_term_memory.content`
+- `midterm_memory_fts` — indexes `midterm_memory.content`
+- `long_term_memory_fts` — indexes `long_term_memory.content`
 
 ---
 
 ## Indexes
 
-39 indexes covering foreign keys, status fields, timestamps, confidence scores, agent IDs, notification priority/read status, and cache lookup keys. See `schema.py` `CREATE_INDEXES` list for the full set.
+39+ indexes covering foreign keys, status fields, timestamps, confidence scores, agent IDs, notification priority/read status, cache lookup keys, provider defaults, thread status, and channel types. See `schema.py` `CREATE_INDEXES` for the full set.

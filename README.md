@@ -14,22 +14,27 @@ The defining architectural principle is **demand-constructed context**. AgentDB 
 
 ### Core Capabilities
 
-- **Tiered memory** with automatic promotion, decay, and consolidation
-- **Knowledge graph** connecting memories, entities, skills, and goals through typed relations
-- **Multi-agent support** with scoped memory access per agent
-- **Semantic search** using locally-generated embeddings (no external API calls)
-- **Multi-strategy retrieval** combining vector similarity, BM25 keyword search, graph traversal, and temporal weighting
-- **MCP server** exposing memory tools via stdio and SSE transports
-- **Chat interface** with streaming LLM responses and context-aware conversations
-- **Markdown authoring** for direct knowledge injection via files or a built-in editor
-- **Chat migration** from ChatGPT, Claude, and generic JSONL exports
-- **Provider-agnostic LLM middleware** with adapters for Claude, OpenAI, and local LLMs
-- **DB console** with AI-assisted SQL query generation
-- **Sleep-time reflection** for idle-period consolidation, goal monitoring, and graph pruning
-- **Scheduled tasks** with interval-based execution
+- **Tiered memory** with automatic promotion, decay, vectorized consolidation, and confidence boosting
+- **Knowledge graph** connecting memories, entities, skills, and goals through 10 typed edge types
+- **Multi-agent support** with scoped memory access per agent and shared organizational knowledge
+- **9-stage retrieval pipeline** combining semantic search, BM25, graph traversal, temporal weighting, and cross-encoder reranking
+- **MCP server** exposing 9 memory tools via stdio and SSE transports, with crash recovery
+- **Chat interface** with streaming LLM responses, full observability sidebar, and file attachments
+- **Markdown authoring** for direct knowledge injection via 4 document types, with YAML hardening
+- **Chat migration** from ChatGPT, Claude, and generic JSONL exports via 5-phase pipeline
+- **Provider-agnostic LLM middleware** with adapters for Claude, OpenAI, and local LLMs (Ollama, llama.cpp, LM Studio)
+- **DB console** with AI-assisted natural language to SQL query generation
+- **Sleep-time reflection** for idle-period consolidation, goal monitoring, graph pruning, and custom alerts (6 condition types)
+- **Skill execution engine** with sandboxed subprocess execution and 4 execution types
+- **Conversation threads** for named, resumable multi-session conversations
+- **Memory pinning** for always-in-context critical knowledge
+- **File attachment processing** for PDF, text, code, and CSV extraction
+- **Git-backed knowledge sync** for version-controlled agent knowledge
 - **Workspace scanning** for local file environment awareness
-- **Mind map visualization** of the knowledge graph
+- **Mind map visualization** of the knowledge graph via Canvas 2D
+- **Tauri desktop shell** with sidecar management, system tray, and auto-restart
 - **Full audit trail** of every operation on every table
+- **Optional SQLCipher encryption** at rest
 - **Single-file portability** — copy the `.db` file to any machine and it works
 
 ---
@@ -102,45 +107,51 @@ AgentDB/
 ├── README.md
 ├── requirements.txt                    # Python deps: sentence-transformers, numpy, mcp
 ├── package.json                        # Tauri CLI config
-├── agentdb/                            # Python backend (8,400+ lines)
+├── agentdb/                            # Python backend (19 modules, 11,600+ lines)
 │   ├── __init__.py                     # Package init, version
 │   ├── schema.py                       # Table DDL, triggers, indexes, FTS5
-│   ├── database.py                     # Connection management, initialization, config seeding
+│   ├── database.py                     # Connection management, init, SQLCipher support
 │   ├── crud.py                         # CRUD operations for all tables
-│   ├── embeddings.py                   # Sentence-transformers pipeline, cosine similarity
-│   ├── context.py                      # Multi-stage context retrieval pipeline
-│   ├── middleware.py                   # LLM provider adapters (Claude, OpenAI, local)
-│   ├── consolidation.py               # Short→mid→long promotion, decay, feedback processing
-│   ├── markdown_parser.py             # Markdown authoring: 4 doc types, file watcher
-│   ├── migration.py                   # Chat import: ChatGPT, Claude, generic JSONL
-│   ├── mcp_server.py                  # FastMCP server with stdio/SSE transports
+│   ├── embeddings.py                   # Sentence-transformers, cosine similarity, BM25
+│   ├── context.py                      # 9-stage retrieval pipeline with cross-encoder
+│   ├── middleware.py                   # LLM adapters, provider resolution chain
+│   ├── consolidation.py               # Vectorized clustering, promotion, decay, confidence boosting
+│   ├── sleep.py                        # Sleep-time reflection: goals, pruning, alerts
+│   ├── skill_executor.py              # Sandboxed skill execution engine (4 types)
+│   ├── markdown_parser.py             # Markdown authoring: 4 doc types, YAML hardening
+│   ├── migration.py                   # Chat import: ChatGPT, Claude, JSONL
+│   ├── file_processor.py             # PDF/text/code/CSV extraction for file attachments
+│   ├── git_sync.py                    # Git knowledge repository sync
+│   ├── workspace_scanner.py           # Workspace file scanning and embedding
+│   ├── mcp_server.py                  # FastMCP server (9 tools, SSE+stdio, crash recovery)
 │   ├── scheduler.py                   # Interval-based task runner
-│   ├── sleep.py                       # Sleep-time reflection engine
-│   ├── workspace_scanner.py           # Local file environment scanning
-│   ├── server.py                      # HTTP server with all API endpoints
+│   ├── server.py                      # HTTP server with 60+ API endpoints
 │   ├── cli.py                         # Command-line interface
 │   └── static/                        # Management UI
 │       ├── index.html                 # SPA shell
 │       ├── css/
-│       │   └── main.css               # Responsive styling
+│       │   └── main.css               # Responsive styling with CSS custom properties
 │       └── js/
 │           ├── app.js                 # Router, sidebar, core UI logic
-│           └── views/                 # View modules (15 views)
+│           └── views/                 # View modules (18 views)
 │               ├── dashboard.js       # Stats overview
-│               ├── chat.js            # LLM chat interface with streaming
-│               ├── memories.js        # Memory browser and search
-│               ├── mindmap.js         # Knowledge graph visualization
+│               ├── chat.js            # Streaming LLM chat with observability
+│               ├── memories.js        # Memory browser with pinning
+│               ├── mindmap.js         # Canvas-based knowledge graph
 │               ├── editor.js          # Markdown authoring editor
-│               ├── skills.js          # Skill management
+│               ├── skills.js          # Skill management and execution
 │               ├── import.js          # Chat migration wizard
-│               ├── dbconsole.js       # SQL console with AI query generation
+│               ├── dbconsole.js       # AI-assisted SQL console
 │               ├── mcp.js             # MCP server status and tools
 │               ├── scheduler.js       # Scheduled task management
-│               ├── settings.js        # Configuration UI
-│               ├── connect.js         # LLM provider connection
+│               ├── settings.js        # Full configuration UI
+│               ├── connect.js         # Entities and goals management
 │               ├── notifications.js   # Notification queue browser
-│               ├── feedback.js        # Feedback review
-│               └── audit.js           # Audit log viewer
+│               ├── feedback.js        # Feedback review and processing
+│               ├── audit.js           # Audit log viewer
+│               ├── threads.js         # Conversation threads
+│               ├── channels.js        # External channel management
+│               └── tasks.js           # Autonomous task monitoring
 ├── src-tauri/                          # Tauri desktop shell (Rust)
 │   ├── Cargo.toml                     # Rust dependencies
 │   ├── src/main.rs                    # Sidecar spawning, health monitoring, tray
@@ -148,12 +159,11 @@ AgentDB/
 │   ├── icons/                         # App icons
 │   └── capabilities/                  # Tauri capability definitions
 └── docs/
+    ├── QUICKSTART.md                  # 5-minute getting started tutorial
     ├── ARCHITECTURE.md                # System architecture deep dive
-    ├── ARCHITECTURE_AMENDMENTS.md     # Architecture updates
-    ├── API_REFERENCE.md               # Full API endpoint reference
-    ├── SCHEMA_REFERENCE.md            # Database schema details
-    ├── DEVELOPMENT.md                 # Development guide
-    └── AgentDB_PRD_v1.6.md            # Product requirements document
+    ├── API_REFERENCE.md               # Full API endpoint reference (60+ endpoints)
+    ├── SCHEMA_REFERENCE.md            # Database schema details (30+ tables)
+    └── DEVELOPMENT.md                 # Development setup and contribution guide
 ```
 
 ---
@@ -353,25 +363,28 @@ Submit via the Markdown Editor in the UI, the `/api/markdown/submit` endpoint, o
 
 ## Management UI
 
-The browser-based management UI at `http://127.0.0.1:8420/` provides:
+The browser-based management UI at `http://127.0.0.1:8420/` provides 18 views:
 
 | View | Description |
 |------|-------------|
 | **Dashboard** | Stats overview with memory counts, entity totals, and system health |
-| **Chat** | Streaming LLM conversation interface with context injection |
-| **Memories** | Browse, search, and inspect memories across all three tiers |
-| **Mind Map** | Interactive knowledge graph visualization |
-| **Markdown Editor** | Author and submit knowledge documents |
-| **Skills** | View and manage discovered capabilities |
+| **Chat** | Streaming LLM conversation interface with full observability sidebar |
+| **Memories** | Browse, search, and inspect memories across all three tiers with pinning |
+| **Mind Map** | Interactive canvas-based knowledge graph visualization |
+| **Markdown Editor** | Author and submit knowledge documents (4 types) |
+| **Skills** | Manage and execute capabilities with logging |
 | **Chat Import** | Migration wizard for ChatGPT, Claude, and JSONL exports |
-| **DB Console** | SQL query interface with AI-assisted query generation |
-| **MCP** | MCP server status, connected tools, and transport config |
+| **DB Console** | AI-assisted natural language to SQL query interface |
+| **MCP** | MCP server status, tools, and crash recovery state |
 | **Scheduler** | Manage interval-based automated tasks |
-| **Settings** | Configure LLM providers, retrieval strategies, and system behavior |
-| **Connect** | LLM provider connection and API key setup |
-| **Notifications** | Browse queued proactive alerts |
+| **Settings** | LLM providers, retrieval tuning, encryption, alerts, and system config |
+| **Connect** | Entities, goals, and knowledge graph management |
+| **Notifications** | Proactive alert queue with priority filtering |
 | **Feedback** | Review endorsements, corrections, and annotations |
 | **Audit Log** | Immutable record of all database operations |
+| **Threads** | Named, resumable conversation threads |
+| **Channels** | External messaging channel configuration |
+| **Tasks** | Autonomous task monitoring and management |
 
 ---
 
@@ -379,7 +392,7 @@ The browser-based management UI at `http://127.0.0.1:8420/` provides:
 
 **Headless mode** (available now): Run the Python backend standalone. The HTTP server, agent API, MCP server, and management UI are available on localhost. Suitable for servers, edge devices, and environments without a GUI.
 
-**Desktop mode** (Phase 8): Tauri 2.x shell bundles the Python backend as a sidecar, manages process lifecycle, provides system tray integration with health monitoring, and auto-restarts on failure. The Tauri shell is scaffolded with sidecar spawning and health monitoring implemented.
+**Desktop mode**: Tauri 2.x shell bundles the Python backend as a sidecar, manages process lifecycle, provides system tray integration with health monitoring, and auto-restarts on failure. The Tauri shell is implemented with sidecar spawning, health monitoring, system tray, and auto-restart.
 
 Both modes use the identical `.db` file. A database created in one mode works in the other.
 
@@ -389,15 +402,16 @@ Both modes use the identical `.db` file. A database created in one mode works in
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| 1. Foundation | Complete | Schema (24 tables + FTS5), triggers, CRUD, embeddings, CLI |
-| 2. Agent Communication & MCP | Complete | MCP server, REST agent API, multi-strategy retrieval, middleware |
-| 3. Consolidation Engine | Complete | STM→MTM→LTM promotion, decay, contradiction detection, feedback |
-| 4. Markdown Authoring | Complete | 4 document types, chunking, deduplication, file watcher |
+| 1. Foundation | Complete | Schema (30+ tables + FTS5), triggers, CRUD, embeddings, CLI |
+| 2. Agent Communication & MCP | Complete | MCP server (SSE+stdio), REST agent API, 9-stage retrieval, middleware |
+| 3. Consolidation Engine | Complete | Vectorized clustering, confidence boosting, promotion, decay, contradiction detection |
+| 4. Markdown Authoring | Complete | 4 doc types, YAML hardening, chunking, deduplication, file watcher |
 | 5. Migration Pipeline | Complete | ChatGPT, Claude, JSONL parsers, 5-phase pipeline |
-| 6. User Interface | Complete | 15-view management SPA with chat, mind map, DB console |
-| 7. Performance Engineering | In Progress | Vectorized clustering, ANN indexing, cross-encoder reranker, query optimization |
-| 8. Agent Execution Layer | Scaffolded | Tauri shell, sidecar lifecycle, system tray, native dialogs |
-| 9–11 | Planned | Workspace awareness, sleep-time processing, encryption hardening |
+| 6. User Interface | Complete | 18-view modular SPA with chat, mind map, DB console, threads |
+| 7. Performance Engineering | Complete | Vectorized clustering, cross-encoder reranker, graph pruning optimization, MCP crash recovery |
+| 8. Tauri Shell | Implemented | Sidecar spawning, health monitoring, system tray, auto-restart |
+| 9. Sleep-Time Processing | Complete | Idle detection, goal monitoring, graph pruning, custom alerts (6 types) |
+| 10. Additional Features | Complete | Skill execution, file attachments, git sync, workspace scanning, threads, memory pinning |
 
 ---
 
@@ -419,11 +433,11 @@ Both modes use the identical `.db` file. A database created in one mode works in
 
 Detailed documentation is in the [`docs/`](docs/) directory:
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — System layers, module map, and data flows
-- [API_REFERENCE.md](docs/API_REFERENCE.md) — Full HTTP endpoint reference
-- [SCHEMA_REFERENCE.md](docs/SCHEMA_REFERENCE.md) — Database table definitions
-- [DEVELOPMENT.md](docs/DEVELOPMENT.md) — Development setup and contribution guide
-- [AgentDB_PRD_v1.6.md](docs/AgentDB_PRD_v1.6.md) — Product requirements document
+- [QUICKSTART.md](docs/QUICKSTART.md) — Build a persistent agent personality in 5 minutes
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — System layers, module map, data flows, and design principles
+- [API_REFERENCE.md](docs/API_REFERENCE.md) — Full HTTP endpoint reference (60+ endpoints)
+- [SCHEMA_REFERENCE.md](docs/SCHEMA_REFERENCE.md) — Database table definitions (30+ tables)
+- [DEVELOPMENT.md](docs/DEVELOPMENT.md) — Development setup, MCP integration, and contribution guide
 
 ---
 
