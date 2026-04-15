@@ -636,7 +636,9 @@ def execute_chat_pipeline(conn, user_message, session_id=None, messages_history=
 
     # Build messages list
     messages = list(messages_history)
-    messages.append({"role": "user", "content": user_message})
+    # Only append if not already the last message in history (UI sends it in both fields)
+    if not messages or messages[-1].get("role") != "user" or messages[-1].get("content") != user_message:
+        messages.append({"role": "user", "content": user_message})
 
     # Call LLM provider
     start_time = time.time()
