@@ -527,4 +527,146 @@ document.addEventListener('DOMContentLoaded', function () {
   // Poll notification badge every 60 seconds
   AgentDB._pollNotifications();
   setInterval(AgentDB._pollNotifications, 60000);
+
+  // ── Keyboard shortcuts (Vim/GitHub-style two-key navigation) ──
+  AgentDB._installKeyboardShortcuts();
 });
+
+/* ============================================================
+   Keyboard shortcuts
+   - "G <letter>" navigates to a view (G prefix held for 1.5s)
+   - "?" opens the help overlay
+   - "/" focuses the first visible search input
+   - Esc closes help overlay
+   - Ignored while typing in input/textarea/contenteditable (except Esc)
+   ============================================================ */
+AgentDB._gShortcuts = {
+  d: 'dashboard',
+  m: 'memories',
+  c: 'chat',
+  t: 'tasks',
+  s: 'settings',
+  n: 'notifications',
+  g: 'mindmap',     // (g)raph
+  e: 'connect',     // (e)ntities
+  k: 'skills',      // (k)ills (skills)
+  b: 'dbconsole',   // data(b)ase
+  l: 'audit',       // (l)og
+  f: 'feedback',
+  i: 'import',
+  p: 'scheduler',   // (p)lanner
+  o: 'editor',      // markd(o)wn editor
+  r: 'threads',     // th(r)eads
+};
+
+AgentDB._installKeyboardShortcuts = function () {
+  var gPending = false;
+  var gTimer = null;
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  function clearGPrefix() {
+    gPending = false;
+    if (gTimer) { clearTimeout(gTimer); gTimer = null; }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    // Esc always works (closes help overlay)
+    if (e.key === 'Escape') {
+      AgentDB._closeShortcutHelp();
+      clearGPrefix();
+      return;
+    }
+    // Don't intercept while typing
+    if (isTypingTarget(e.target)) return;
+    // Ignore modified key combos except plain G/?, /, etc.
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    var k = e.key;
+
+    if (gPending) {
+      var target = AgentDB._gShortcuts[k.toLowerCase()];
+      clearGPrefix();
+      if (target) {
+        e.preventDefault();
+        AgentDB.navigate(target);
+      }
+      return;
+    }
+
+    if (k === 'g' || k === 'G') {
+      gPending = true;
+      gTimer = setTimeout(clearGPrefix, 1500);
+      return;
+    }
+    if (k === '?') {
+      e.preventDefault();
+      AgentDB._openShortcutHelp();
+      return;
+    }
+    if (k === '/') {
+      // Focus first visible search input in the active view
+      var active = document.querySelector('.view.active');
+      if (!active) return;
+      var search = active.querySelector(
+        'input[type="search"], input[placeholder*="Search" i], input[placeholder*="search" i]'
+      );
+      if (search) {
+        e.preventDefault();
+        search.focus();
+        search.select && search.select();
+      }
+    }
+  });
+};
+
+AgentDB._openShortcutHelp = function () {
+  if (document.getElementById('shortcut-help-overlay')) return;
+  var entries = Object.keys(AgentDB._gShortcuts).map(function (k) {
+    return { key: 'G ' + k.toUpperCase(), label: AgentDB._gShortcuts[k] };
+  });
+  var rows = entries.map(function (e) {
+    return '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">' +
+           AgentDB.esc(e.key) + '</td><td>' + AgentDB.esc(e.label) + '</td></tr>';
+  }).join('');
+  rows += '<tr><td colspan="2" style="padding-top:10px;color:var(--text2);font-size:11px">— Other —</td></tr>';
+  rows += '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">?</td><td>Show this help</td></tr>';
+  rows += '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">/</td><td>Focus search in current view</td></tr>';
+  rows += '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">Esc</td><td>Close overlay</td></tr>';
+  rows += '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">Enter</td><td>Send (in chat)</td></tr>';
+  rows += '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">Shift+Enter</td><td>Newline (in chat)</td></tr>';
+
+  var overlay = document.createElement('div');
+  overlay.id = 'shortcut-help-overlay';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;' +
+    'display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML =
+    '<div style="background:var(--bg2);border-radius:var(--radius);padding:24px;' +
+    'min-width:360px;max-width:560px;max-height:80vh;overflow:auto;' +
+    'box-shadow:0 8px 32px var(--shadow)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+    '<h3 style="margin:0">Keyboard Shortcuts</h3>' +
+    '<button class="btn btn-sm" id="shortcut-help-close">Close</button></div>' +
+    '<table style="width:100%;font-size:13px">' + rows + '</table>' +
+    '<div style="font-size:11px;color:var(--text2);margin-top:12px">' +
+    'Press <kbd>?</kbd> any time outside a text input to reopen this.</div>' +
+    '</div>';
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) AgentDB._closeShortcutHelp();
+  });
+  document.body.appendChild(overlay);
+  var closeBtn = document.getElementById('shortcut-help-close');
+  if (closeBtn) closeBtn.addEventListener('click', AgentDB._closeShortcutHelp);
+};
+
+AgentDB._closeShortcutHelp = function () {
+  var o = document.getElementById('shortcut-help-overlay');
+  if (o) o.remove();
+};

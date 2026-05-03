@@ -56,6 +56,12 @@
       html += '    <div class="chat-input-area">';
       html += '      <div id="chat-file-preview" class="chat-file-preview"></div>';
       html += '      <input type="file" id="chat-file-input" multiple accept="image/*,.txt,.pdf,.json,.md,.csv" style="display:none">';
+      // Context window meter: rough token estimate (chars/4) vs the active
+      // provider\'s context_window_tokens. Updates on keystroke + after send.
+      html += '      <div id="ctx-meter" class="ctx-meter" title="Estimated tokens vs provider context window">';
+      html += '        <div class="ctx-meter-bar"><div class="ctx-meter-fill" id="ctx-meter-fill"></div></div>';
+      html += '        <div class="ctx-meter-label" id="ctx-meter-label">0 / 200,000 tokens (0%)</div>';
+      html += '      </div>';
       html += '      <div class="chat-input-row">';
       html += '        <textarea id="chat-input" rows="3" placeholder="Type a message..."></textarea>';
       html += '        <button class="btn" id="chat-attach" title="Attach file" style="font-size:18px;padding:6px 10px;align-self:flex-end">';
@@ -141,6 +147,10 @@
           V.send();
         }
       });
+      // Live token-meter updates as the user types
+      input.addEventListener('input', function () { V.updateContextMeter(); });
+      V.loadProviderContextWindow();
+      V.updateContextMeter();
 
       document.getElementById('chat-attach').addEventListener('click', function() {
         document.getElementById('chat-file-input').click();
@@ -348,6 +358,8 @@
 
           var d = res.data || {};
           V.lastRawResponse = res;
+          // Capture for the context-window meter (size matters, not contents)
+          V.lastContextPayloadJson = JSON.stringify(d.context_payload || {});
           if (res.status === 'ok' && d.response) {
             /* Append assistant message */
             V.appendMsg('assistant', d.response);
@@ -355,6 +367,7 @@
 
             /* Update sidebar with context (or raw view) */
             V.renderContext(d);
+            V.updateContextMeter();
           } else {
             var errMsg = res.error || 'Unknown error from agent';
             V.appendMsg('error', errMsg);
@@ -703,6 +716,71 @@
     } else {
       sidebar.style.display = 'none';
       if (btn) btn.textContent = 'Show Context';
+    }
+  };
+
+  /* ============================================================
+     V.updateContextMeter / loadProviderContextWindow
+     Token-budget meter above the chat input. chars/4 ≈ tokens is
+     accurate to ±20% for English which is enough for a UX hint.
+     ============================================================= */
+  V.contextWindowTokens = 200000; // sane default (Claude-like)
+  V.lastContextPayloadJson = '';
+
+  V.loadProviderContextWindow = async function () {
+    try {
+      var r = await AgentDB.api('GET', '/api/providers');
+      if (r.status !== 'ok' || !r.data) return;
+      var providers = r.data;
+      // Prefer the chat dropdown's selection if present; else default
+      var sel = document.getElementById('chat-provider');
+      var picked = null;
+      if (sel && sel.value) {
+        picked = providers.find(function (p) { return p.id === sel.value; });
+      }
+      if (!picked) picked = providers.find(function (p) { return p.is_default; });
+      if (!picked && providers.length) picked = providers[0];
+      if (picked && picked.context_window_tokens) {
+        V.contextWindowTokens = parseInt(picked.context_window_tokens, 10) || 200000;
+      }
+      V.updateContextMeter();
+    } catch (_) { /* keep default */ }
+  };
+
+  V.estimateTokens = function (s) {
+    if (!s) return 0;
+    // chars/4 is the standard rough heuristic
+    return Math.ceil(s.length / 4);
+  };
+
+  V.updateContextMeter = function () {
+    var bar = document.getElementById('ctx-meter-fill');
+    var label = document.getElementById('ctx-meter-label');
+    if (!bar || !label) return;
+    var input = document.getElementById('chat-input');
+    var typing = input ? input.value : '';
+    // Sum: history (already-exchanged turns), retrieved context (last), typing
+    var historyChars = JSON.stringify(AgentDB.state.chatHistory || []).length;
+    var contextChars = (V.lastContextPayloadJson || '').length;
+    var typingChars = typing.length;
+    var total = V.estimateTokens(typingChars + historyChars + contextChars);
+    var max = V.contextWindowTokens || 200000;
+    var pct = Math.min(100, Math.round((total / max) * 100));
+    bar.style.width = pct + '%';
+    bar.classList.remove('ctx-meter-green', 'ctx-meter-amber', 'ctx-meter-red');
+    if (pct < 70) bar.classList.add('ctx-meter-green');
+    else if (pct < 90) bar.classList.add('ctx-meter-amber');
+    else bar.classList.add('ctx-meter-red');
+    var totalFmt = total.toLocaleString();
+    var maxFmt = max.toLocaleString();
+    label.textContent = totalFmt + ' / ' + maxFmt + ' tokens (' + pct + '%)';
+    // Hover breakdown
+    var meter = document.getElementById('ctx-meter');
+    if (meter) {
+      meter.title = 'Estimated tokens (chars/4):\n' +
+        '• Conversation history: ~' + V.estimateTokens(historyChars).toLocaleString() + '\n' +
+        '• Retrieved context (last send): ~' + V.estimateTokens(contextChars).toLocaleString() + '\n' +
+        '• Current input: ~' + V.estimateTokens(typingChars).toLocaleString();
     }
   };
 

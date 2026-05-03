@@ -837,6 +837,33 @@ label {
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
+
+/* Context window meter — sits above the textarea */
+.ctx-meter {
+  margin: 0 0 6px 0;
+  cursor: help;
+}
+.ctx-meter-bar {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ctx-meter-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  transition: width 0.15s ease, background 0.2s ease;
+}
+.ctx-meter-fill.ctx-meter-green { background: var(--green); }
+.ctx-meter-fill.ctx-meter-amber { background: var(--yellow); }
+.ctx-meter-fill.ctx-meter-red   { background: var(--red); }
+.ctx-meter-label {
+  font-size: 10px;
+  color: var(--text2);
+  margin-top: 2px;
+  font-family: var(--mono);
+}
 .chat-file-preview {
   display: none;
   flex-wrap: wrap;

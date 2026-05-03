@@ -352,6 +352,9 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 crud.delete_workspace(conn, m["id"])
                 conn.commit()
                 return _json_response(self, 200, data={"deleted": m["id"]})
+            if path == "/api/db-query/history":
+                crud.set_config(conn, "db_query_history", "[]")
+                return _json_response(self, 200, data={"cleared": True})
             m = _match("/api/providers/{id}", path)
             if m:
                 crud.delete_llm_provider(conn, m["id"])
@@ -655,6 +658,16 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     return _json_response(self, 403, error=str(e))
                 except FileNotFoundError as e:
                     return _json_response(self, 404, error=str(e))
+            if path == "/api/db-query/history":
+                # Last-50 successful queries (excludes AI-generated ones)
+                try:
+                    raw = crud.get_config_value(conn, "db_query_history", "[]")
+                    hist = json.loads(raw) if raw else []
+                    if not isinstance(hist, list):
+                        hist = []
+                except Exception:
+                    hist = []
+                return _json_response(self, 200, data=hist)
             if path == "/api/db-query/schema":
                 tables = conn.execute(
                     "SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL ORDER BY name"
@@ -964,8 +977,28 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     return _json_response(self, 400, error="'sql' is required")
                 sql_upper = sql.upper().lstrip()
                 write_enabled = crud.get_config_value(conn, "db_console_write_enabled", "false") == "true"
-                if not write_enabled and not sql_upper.startswith("SELECT") and not sql_upper.startswith("PRAGMA") and not sql_upper.startswith("EXPLAIN"):
+                # Safety validation — even with write_enabled, never allow these
+                # high-risk verbs since they can trash the database file or
+                # smuggle arbitrary code via attached DBs.
+                FORBIDDEN_PREFIXES = ("ATTACH", "DETACH", "DROP", "ALTER")
+                for fp in FORBIDDEN_PREFIXES:
+                    if sql_upper.startswith(fp + " ") or sql_upper.startswith(fp + "\t") or sql_upper == fp:
+                        return _json_response(self, 403,
+                            error=f"{fp} statements are blocked from the DB console for safety.")
+                if not write_enabled and not (sql_upper.startswith("SELECT") or sql_upper.startswith("PRAGMA") or sql_upper.startswith("EXPLAIN") or sql_upper.startswith("WITH")):
                     return _json_response(self, 403, error="Write queries disabled. Enable db_console_write_enabled in settings.")
+                # 5-second timeout via conn.interrupt() from a watchdog thread.
+                # SQLite's Python binding has no per-statement timeout knob, so
+                # we schedule an interrupt and cancel it on completion.
+                import threading as _t
+                timeout_s = int(crud.get_config_value(conn, "db_query_timeout_seconds", "5"))
+                interrupted = {"yes": False}
+                def _kill():
+                    interrupted["yes"] = True
+                    try: conn.interrupt()
+                    except Exception: pass
+                timer = _t.Timer(timeout_s, _kill)
+                timer.start()
                 try:
                     cursor = conn.execute(sql)
                     if cursor.description:
@@ -974,8 +1007,29 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     else:
                         rows, columns = [], []
                         conn.commit()
+                    timer.cancel()
+                    # Persist to history (last 50). Only on success and only
+                    # for queries the user typed (not the AI generator path).
+                    if not body.get("from_ai"):
+                        try:
+                            hist_raw = crud.get_config_value(conn, "db_query_history", "[]")
+                            hist = json.loads(hist_raw) if hist_raw else []
+                        except Exception:
+                            hist = []
+                        if not isinstance(hist, list):
+                            hist = []
+                        # De-dupe consecutive duplicates
+                        if not hist or hist[0].get("sql") != sql:
+                            hist.insert(0, {"sql": sql, "ts": datetime.utcnow().isoformat(),
+                                            "rows": len(rows)})
+                            hist = hist[:50]
+                            crud.set_config(conn, "db_query_history", json.dumps(hist))
                     return _json_response(self, 200, data={"columns": columns, "rows": rows, "row_count": len(rows)})
                 except Exception as e:
+                    timer.cancel()
+                    if interrupted["yes"]:
+                        return _json_response(self, 408,
+                            error=f"Query exceeded the {timeout_s}-second timeout and was interrupted.")
                     return _json_response(self, 400, error=str(e))
 
             if path == "/api/db/ai-query":
