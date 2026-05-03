@@ -20,8 +20,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from agentdb import crud
-from agentdb.embeddings import (
+from swadb import crud
+from swadb.embeddings import (
     generate_embedding,
     embedding_to_blob,
     cosine_similarity,
@@ -661,7 +661,7 @@ class MarkdownFileWatcher:
 
     def _watch_loop(self):
         """Main polling loop."""
-        from agentdb.database import get_connection
+        from swadb.database import get_connection
 
         while not self._stop_event.is_set():
             try:

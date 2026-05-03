@@ -17,8 +17,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from agentdb import crud
-from agentdb.embeddings import generate_embedding, embedding_to_blob
+from swadb import crud
+from swadb.embeddings import generate_embedding, embedding_to_blob
 
 
 # ── File type mapping ─────────────────────────────────────────────────────────

@@ -21,9 +21,10 @@ import threading
 import time as _time
 from datetime import datetime, timedelta
 
-from agentdb import crud
-from agentdb.consolidation import run_consolidation_cycle
-from agentdb.embeddings import semantic_search
+from swadb import crud
+from swadb.consolidation import run_consolidation_cycle
+from swadb.embeddings import semantic_search
+from swadb.notifications import deliver_pending
 
 
 # ── Idle Detection ──────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ def start_idle_detector(conn_factory, threshold_seconds=300, check_interval=10):
             _time.sleep(check_interval)
 
     _idle_detector_thread = threading.Thread(target=_detector_loop, daemon=True,
-                                             name="agentdb-idle-detector")
+                                             name="swadb-idle-detector")
     _idle_detector_thread.start()
 
 
@@ -123,6 +124,7 @@ def run_sleep_cycle(conn, config=None):
         "goal_notifications": 0,
         "relations_pruned": 0,
         "notifications_created": 0,
+        "webhook_delivery": {},
     }
 
     if config.get("sleep_reflection_enabled", "true") != "true":
@@ -150,6 +152,14 @@ def run_sleep_cycle(conn, config=None):
     # Phase 5: Summary notification
     notif_count = _create_cycle_notification(conn, results, consolidation_result)
     results["notifications_created"] = notif_count
+
+    # Phase 6: Webhook delivery for any undelivered notifications meeting
+    # the configured priority threshold. Includes the summary just created
+    # plus any backlog from prior cycles whose POSTs failed previously.
+    try:
+        results["webhook_delivery"] = deliver_pending(conn)
+    except Exception as e:
+        results["webhook_delivery"] = {"error": str(e)}
 
     crud.set_config(conn, "last_sleep_cycle_timestamp", results["timestamp"])
     return results
@@ -228,7 +238,7 @@ def _prune_graph(conn, config):
     and JOIN-based existence checks per content table instead of per-relation
     sequential queries.
     """
-    from agentdb.schema import CONTENT_TABLES
+    from swadb.schema import CONTENT_TABLES
 
     min_weight = float(config.get("min_relation_weight", "0.05"))
     pruning_days = int(config.get("sleep_graph_pruning_threshold_days", "60"))

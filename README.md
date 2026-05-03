@@ -65,23 +65,23 @@ pip install -r requirements.txt
 ### Initialize the Database
 
 ```bash
-python -m agentdb.cli init
+python -m swadb.cli init
 ```
 
-This creates `agentdb.db` in the current directory with all tables, triggers, indexes, FTS5 virtual tables, default configuration values, and a default agent.
+This creates `swadb.db` in the current directory with all tables, triggers, indexes, FTS5 virtual tables, default configuration values, and a default agent.
 
 ### Verify
 
 ```bash
-python -m agentdb.cli verify
-python -m agentdb.cli stats
-python -m agentdb.cli config list
+python -m swadb.cli verify
+python -m swadb.cli stats
+python -m swadb.cli config list
 ```
 
 ### Start the Server
 
 ```bash
-python -m agentdb.cli serve
+python -m swadb.cli serve
 ```
 
 The server starts on `http://127.0.0.1:8420`. Open that URL in a browser for the management UI.
@@ -94,8 +94,8 @@ The server starts on `http://127.0.0.1:8420`. Open that URL in a browser for the
 ### Use a Custom Database Path
 
 ```bash
-python -m agentdb.cli --db /path/to/my.db init
-python -m agentdb.cli --db /path/to/my.db serve --port 9000
+python -m swadb.cli --db /path/to/my.db init
+python -m swadb.cli --db /path/to/my.db serve --port 9000
 ```
 
 ---
@@ -107,7 +107,7 @@ AgentDB/
 ├── README.md
 ├── requirements.txt                    # Python deps: sentence-transformers, numpy, mcp
 ├── package.json                        # Tauri CLI config
-├── agentdb/                            # Python backend (19 modules, 11,600+ lines)
+├── swadb/                              # Python backend (19 modules, 11,600+ lines)
 │   ├── __init__.py                     # Package init, version
 │   ├── schema.py                       # Table DDL, triggers, indexes, FTS5
 │   ├── database.py                     # Connection management, init, SQLCipher support
@@ -170,7 +170,7 @@ AgentDB/
 
 ## CLI Reference
 
-All commands accept `--db <path>` to specify the database file. Default is `agentdb.db`.
+All commands accept `--db <path>` to specify the database file. Default is `swadb.db`.
 
 | Command | Description |
 |---------|-------------|
@@ -240,10 +240,10 @@ AgentDB exposes its memory system as MCP tools via [FastMCP](https://github.com/
 **Run via CLI:**
 ```bash
 # stdio mode (for MCP clients like Claude Desktop)
-python -m agentdb.cli mcp
+python -m swadb.cli mcp
 
 # SSE mode (auto-started with the HTTP server on port 8421)
-python -m agentdb.cli serve
+python -m swadb.cli serve
 ```
 
 **Configuration** (in `meta_config`):
@@ -283,8 +283,8 @@ System configuration lives in the `meta_config` table inside the database. LLM p
 Set any value via CLI:
 
 ```bash
-python -m agentdb.cli config set embedding_model all-MiniLM-L6-v2
-python -m agentdb.cli config set consolidation_interval_seconds 600
+python -m swadb.cli config set embedding_model all-MiniLM-L6-v2
+python -m swadb.cli config set consolidation_interval_seconds 600
 ```
 
 Or via the Settings page in the management UI. LLM providers are managed through the provider management interface in Settings, not through flat config keys.

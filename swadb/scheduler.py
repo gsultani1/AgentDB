@@ -11,11 +11,11 @@ import os
 import threading
 from datetime import datetime, timedelta
 
-from agentdb import crud
-from agentdb.consolidation import run_consolidation_cycle
-from agentdb.database import get_connection
-from agentdb.schema import CREATE_INDEXES, CREATE_SCHEDULED_TASKS
-from agentdb.sleep import run_sleep_cycle
+from swadb import crud
+from swadb.consolidation import run_consolidation_cycle
+from swadb.database import get_connection
+from swadb.schema import CREATE_INDEXES, CREATE_SCHEDULED_TASKS
+from swadb.sleep import run_sleep_cycle
 
 
 def _now():
@@ -45,7 +45,7 @@ def ensure_scheduler_schema(conn):
 
 def run_integrity_check(conn):
     """Scan polymorphic reference columns for orphaned IDs."""
-    from agentdb.schema import CONTENT_TABLES
+    from swadb.schema import CONTENT_TABLES
 
     orphans_found = 0
     orphans_detail = []

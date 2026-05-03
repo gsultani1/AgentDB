@@ -8,8 +8,8 @@ short-term memory. Supports PDF, plain text, code files, and CSV.
 import json
 import os
 
-from agentdb import crud
-from agentdb.embeddings import generate_embedding, embedding_to_blob
+from swadb import crud
+from swadb.embeddings import generate_embedding, embedding_to_blob
 
 
 # Maximum characters per chunk for STM ingestion

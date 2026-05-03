@@ -1,5 +1,5 @@
 [package]
-name = "agentdb"
+name = "swadb"
 version = "0.1.0"
 description = "AgentDB - Sovereign Agent Memory System"
 authors = ["George Sultani <george@sultani.com>"]

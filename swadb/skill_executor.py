@@ -19,7 +19,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from agentdb import crud
+from swadb import crud
 
 
 def execute_skill(conn, skill_id, inputs=None, agent_id="default",
@@ -120,7 +120,7 @@ def _execute_code_procedure(impl, inputs, config):
     try:
         # Build restricted environment
         env = _build_sandbox_env(config)
-        env["AGENTDB_SKILL_INPUTS"] = json.dumps(inputs)
+        env["SWADB_SKILL_INPUTS"] = json.dumps(inputs)
 
         if language == "python":
             cmd = [sys.executable, temp_path]
@@ -194,7 +194,7 @@ def _execute_prompt_template(conn, impl, inputs, agent_id, config):
 
     # Call the LLM via middleware
     try:
-        from agentdb.middleware import execute_chat_pipeline
+        from swadb.middleware import execute_chat_pipeline
         result = execute_chat_pipeline(conn, prompt, agent_id=agent_id)
         return {
             "status": "success",

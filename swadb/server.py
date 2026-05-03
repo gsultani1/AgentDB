@@ -17,26 +17,26 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-from agentdb.database import get_connection, verify_schema
-from agentdb import crud
-from agentdb.context import retrieve_context
-from agentdb.embeddings import (
+from swadb.database import get_connection, verify_schema
+from swadb import crud
+from swadb.context import retrieve_context
+from swadb.embeddings import (
     generate_embedding,
     embedding_to_blob,
     blob_to_embedding,
     semantic_search,
 )
-from agentdb.middleware import (
+from swadb.middleware import (
     execute_chat_pipeline,
     get_identity_memories,
     get_llm_config,
 )
-from agentdb.markdown_parser import (
+from swadb.markdown_parser import (
     process_markdown_document,
     reverse_generate_markdown,
     MarkdownFileWatcher,
 )
-from agentdb.scheduler import (
+from swadb.scheduler import (
     ScheduledTaskRunner,
     compute_next_run,
     ensure_scheduler_schema,
@@ -392,7 +392,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         # Record API activity for idle detection
         if path.startswith("/api/agent/") or path == "/api/agent/chat":
             try:
-                from agentdb.sleep import record_agent_api_call
+                from swadb.sleep import record_agent_api_call
                 record_agent_api_call()
             except Exception:
                 pass
@@ -459,7 +459,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if path == "/api/markdown/watcher/status":
                 return self._op_watcher_status(conn)
             if path == "/api/encryption/status":
-                from agentdb.database import encryption_status
+                from swadb.database import encryption_status
                 return _json_response(self, 200, data=encryption_status())
 
             # Parameterized routes
@@ -599,10 +599,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     rules = []
                 return _json_response(self, 200, data=rules)
             if path == "/api/git-sync/status":
-                from agentdb.git_sync import get_sync_status
+                from swadb.git_sync import get_sync_status
                 return _json_response(self, 200, data=get_sync_status(conn))
             if path == "/api/idle/status":
-                from agentdb.sleep import is_idle, idle_since
+                from swadb.sleep import is_idle, idle_since
                 return _json_response(self, 200, data={
                     "is_idle": is_idle(),
                     "idle_since": idle_since(),
@@ -628,7 +628,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         # Record API activity for idle detection
         if path.startswith("/api/agent/"):
             try:
-                from agentdb.sleep import record_agent_api_call
+                from swadb.sleep import record_agent_api_call
                 record_agent_api_call()
             except Exception:
                 pass
@@ -679,36 +679,57 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if path == "/api/notifications/dismiss":
                 crud.dismiss_read_notifications(conn)
                 return _json_response(self, 200, data={"message": "Read notifications dismissed"})
+            if path == "/api/notifications/test-webhook":
+                from swadb.notifications import _build_payload, _post_webhook, _load_config
+                cfg = _load_config(conn)
+                url = (cfg.get("notification_webhook_url") or "").strip()
+                if not url:
+                    return _json_response(self, 400, error="notification_webhook_url is not configured")
+                test_payload = _build_payload({
+                    "id": "test",
+                    "agent_id": "default",
+                    "trigger_type": "consolidation_complete",
+                    "title": "AgentDB webhook test",
+                    "body": "If you can read this, your webhook is wired up.",
+                    "priority": "medium",
+                    "related_ids": None,
+                    "created_at": None,
+                })
+                ok = _post_webhook(url, test_payload)
+                return _json_response(self, 200, data={"delivered": ok, "url": url})
+            if path == "/api/notifications/deliver-pending":
+                from swadb.notifications import deliver_pending
+                return _json_response(self, 200, data=deliver_pending(conn))
             if path == "/api/scheduled-tasks":
                 return self._op_scheduled_task_create(conn, body)
             if path == "/api/maintenance/consolidate":
-                from agentdb.consolidation import run_consolidation_cycle
+                from swadb.consolidation import run_consolidation_cycle
                 result = run_consolidation_cycle(conn)
                 return _json_response(self, 200, data=result)
             if path == "/api/maintenance/sleep-cycle":
                 try:
-                    from agentdb.sleep import run_sleep_cycle
+                    from swadb.sleep import run_sleep_cycle
                     result = run_sleep_cycle(conn)
                     return _json_response(self, 200, data=result)
                 except Exception as e:
                     return _json_response(self, 500, error=str(e))
             if path == "/api/maintenance/integrity-check":
                 try:
-                    from agentdb.scheduler import run_integrity_check
+                    from swadb.scheduler import run_integrity_check
                     result = run_integrity_check(conn)
                     return _json_response(self, 200, data=result)
                 except Exception as e:
                     return _json_response(self, 500, error=str(e))
             if path == "/api/workspaces/scan":
                 # Scan all registered workspaces
-                from agentdb.workspace_scanner import scan_workspace
+                from swadb.workspace_scanner import scan_workspace
                 workspaces = crud.list_workspaces(conn)
                 results = []
                 for ws in workspaces:
                     results.append(scan_workspace(conn, ws["id"]))
                 return _json_response(self, 200, data={"workspaces": results})
             if path == "/api/encryption/rekey":
-                from agentdb.database import rekey_database
+                from swadb.database import rekey_database
                 old_pass = body.get("old_passphrase")
                 new_pass = body.get("new_passphrase")
                 try:
@@ -728,7 +749,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     return _json_response(self, 400, error="file_path is required")
                 if not os.path.isfile(file_path):
                     return _json_response(self, 400, error=f"File not found: {file_path}")
-                from agentdb.migration import run_migration_pipeline
+                from swadb.migration import run_migration_pipeline
                 result = run_migration_pipeline(conn, file_path, provider)
                 _last_import_result = {**result, "status": "completed"}
                 return _json_response(self, 200, data=_last_import_result)
@@ -802,7 +823,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     "generate ONLY a SQL SELECT query to answer the user's question. "
                     "Return ONLY the SQL query, no explanation, no markdown fences.\n\nSchema:\n" + schema_text
                 )
-                from agentdb.middleware import get_llm_config, get_adapter
+                from swadb.middleware import get_llm_config, get_adapter
                 llm_config = get_llm_config(conn)
                 prov = body.get("provider") or llm_config.get("llm_provider", "claude")
                 adapter = get_adapter(prov)
@@ -828,7 +849,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return self._op_agent_rotate_key(conn, m["id"])
             m = _match("/api/workspaces/{id}/scan", path)
             if m:
-                from agentdb.workspace_scanner import scan_workspace
+                from swadb.workspace_scanner import scan_workspace
                 result = scan_workspace(conn, m["id"])
                 return _json_response(self, 200, data=result)
             m = _match("/api/contradictions/{id}/resolve", path)
@@ -841,6 +862,16 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 result = run_scheduled_task_now(conn, m["id"])
                 return _json_response(self, 200, data=result)
+            m = _match("/api/notifications/{id}/deliver", path)
+            if m:
+                from swadb.notifications import deliver_notification, _load_config
+                cfg = _load_config(conn)
+                if not (cfg.get("notification_webhook_url") or "").strip():
+                    return _json_response(self, 400, error="notification_webhook_url is not configured")
+                ok = deliver_notification(conn, m["id"], cfg)
+                if ok:
+                    return _json_response(self, 200, data={"id": m["id"], "delivered": True})
+                return _json_response(self, 502, error="Webhook POST failed; notification left undelivered for retry")
 
             # ── v1.5/v1.6 POST routes ──
             if path == "/api/threads":
@@ -935,7 +966,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     file_bytes = _b64.b64decode(data_b64)
                 except Exception:
                     return _json_response(self, 400, error="Invalid base64 data")
-                from agentdb.file_processor import process_file_from_content
+                from swadb.file_processor import process_file_from_content
                 result = process_file_from_content(
                     conn, file_bytes, filename,
                     session_id=session_id, thread_id=thread_id, agent_id=agent_id,
@@ -1035,7 +1066,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return _json_response(self, 201, data={"id": gid})
 
             if path == "/api/maintenance/git-sync":
-                from agentdb.git_sync import sync_from_git
+                from swadb.git_sync import sync_from_git
                 result = sync_from_git(conn)
                 return _json_response(self, 200, data=result)
 
@@ -1044,7 +1075,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 provider = crud.get_llm_provider(conn, m["id"])
                 if not provider:
                     return _json_response(self, 404, error="Provider not found")
-                from agentdb.middleware import get_adapter
+                from swadb.middleware import get_adapter
                 adapter = get_adapter(provider.get("provider_type", "claude"))
                 try:
                     test_config = {
@@ -1080,7 +1111,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 skill_id = body.get("skill_id", "")
                 if not skill_id:
                     return _json_response(self, 400, error="'skill_id' is required")
-                from agentdb.skill_executor import execute_skill
+                from swadb.skill_executor import execute_skill
                 result = execute_skill(
                     conn, skill_id,
                     inputs=body.get("inputs", {}),
@@ -1967,7 +1998,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
 
 def _run_integrity_check(conn):
     """Scan polymorphic reference columns for orphaned IDs."""
-    from agentdb.schema import CONTENT_TABLES
+    from swadb.schema import CONTENT_TABLES
     orphans_found = 0
     orphans_detail = []
 
@@ -2069,7 +2100,7 @@ def _ensure_providers_schema(conn):
 def _ensure_v15_schema(conn):
     """Create v1.5/v1.6 tables on existing databases that lack them.
     Uses the canonical DDL from schema.py to ensure column parity with CRUD layer."""
-    from agentdb.schema import (
+    from swadb.schema import (
         CREATE_CONVERSATION_THREADS, CREATE_PINNED_MEMORIES,
         CREATE_FILE_ATTACHMENTS, CREATE_CHANNEL_CONFIGS,
         CREATE_CHANNEL_MESSAGES, CREATE_AUTONOMOUS_TASKS,
@@ -2133,7 +2164,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     # Ensure v1.5/v1.6 tables exist on pre-existing databases
     _ensure_v15_schema(conn)
     # Backfill any new DEFAULT_CONFIG keys into existing databases
-    from agentdb.database import DEFAULT_CONFIG
+    from swadb.database import DEFAULT_CONFIG
     import uuid as _uuid_mod
     _now = datetime.utcnow().isoformat()
     for _k, _v in DEFAULT_CONFIG.items():
@@ -2150,7 +2181,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     import threading as _warmup_threading
     def _warmup_embeddings():
         try:
-            from agentdb.embeddings import get_model
+            from swadb.embeddings import get_model
             get_model()
             print("Embedding model pre-warmed")
         except Exception as e:
@@ -2178,7 +2209,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
 
     # Start idle detector for automatic sleep-time consolidation
     try:
-        from agentdb.sleep import start_idle_detector
+        from swadb.sleep import start_idle_detector
         conn = get_connection(db_path)
         idle_threshold = int(crud.get_config_value(conn, "sleep_idle_threshold_seconds", "300"))
         conn.close()
@@ -2206,7 +2237,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
 
                 while True:
                     try:
-                        from agentdb.mcp_server import run_mcp_server
+                        from swadb.mcp_server import run_mcp_server
                         _mcp_started = True
                         _mcp_last_restart = datetime.utcnow().isoformat()
                         run_mcp_server(db_path, transport="sse", host="127.0.0.1", port=mcp_port_val)
@@ -2230,7 +2261,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
             _mcp_thread = _threading.Thread(
                 target=_mcp_resilient_wrapper,
                 daemon=True,
-                name="agentdb-mcp",
+                name="swadb-mcp",
             )
             _mcp_thread.start()
             _mcp_started = True

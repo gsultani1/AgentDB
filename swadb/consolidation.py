@@ -14,8 +14,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from agentdb import crud
-from agentdb.embeddings import (
+from swadb import crud
+from swadb.embeddings import (
     generate_embedding,
     embedding_to_blob,
     blob_to_embedding,
@@ -580,7 +580,7 @@ class ConsolidationScheduler:
 
     def _run_loop(self):
         """Main loop: sleep for interval, then run consolidation."""
-        from agentdb.database import get_connection
+        from swadb.database import get_connection
 
         while not self._stop_event.is_set():
             try:

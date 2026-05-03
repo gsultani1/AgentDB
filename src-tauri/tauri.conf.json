@@ -1,9 +1,9 @@
 {
   "productName": "AgentDB",
   "version": "0.1.0",
-  "identifier": "com.sultani.agentdb",
+  "identifier": "com.sultani.swadb",
   "build": {
-    "frontendDist": "../agentdb/static",
+    "frontendDist": "../swadb/static",
     "devUrl": "http://localhost:8420",
     "beforeDevCommand": "",
     "beforeBuildCommand": ""

@@ -19,9 +19,9 @@ import json
 import time
 from datetime import datetime
 
-from agentdb import crud
-from agentdb.context import retrieve_context
-from agentdb.embeddings import generate_embedding, embedding_to_blob
+from swadb import crud
+from swadb.context import retrieve_context
+from swadb.embeddings import generate_embedding, embedding_to_blob
 
 
 class ProviderAdapter:
@@ -59,7 +59,7 @@ class ClaudeAdapter(ProviderAdapter):
 
     def format_context(self, context_payload):
         parts = []
-        parts.append("<agentdb_context>")
+        parts.append("<swadb_context>")
 
         # Identity/directive memories
         if context_payload.get("identity"):
@@ -124,7 +124,7 @@ class ClaudeAdapter(ProviderAdapter):
                 parts.append("  </entity>")
             parts.append("</entities>")
 
-        parts.append("</agentdb_context>")
+        parts.append("</swadb_context>")
         return "\n".join(parts)
 
     def call_provider(self, messages, formatted_context, config):

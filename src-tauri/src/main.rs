@@ -43,7 +43,7 @@ impl SidecarState {
     }
 
     fn db_path(&self) -> PathBuf {
-        self.data_dir.join("agentdb.db")
+        self.data_dir.join("swadb.db")
     }
 
     fn spawn(&mut self) -> Result<(), String> {
@@ -67,7 +67,7 @@ impl SidecarState {
         // Auto-initialize database if it doesn't exist
         if !db.exists() {
             let mut cmd = Command::new(python);
-            cmd.args(["-m", "agentdb.cli", "--db", &db_str, "init"])
+            cmd.args(["-m", "swadb.cli", "--db", &db_str, "init"])
                 .current_dir(&self.data_dir)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
@@ -82,7 +82,7 @@ impl SidecarState {
 
         let mut cmd = Command::new(python);
         cmd.args([
-                "-m", "agentdb.cli",
+                "-m", "swadb.cli",
                 "--db", &db_str,
                 "serve",
                 "--port", &self.port.to_string(),

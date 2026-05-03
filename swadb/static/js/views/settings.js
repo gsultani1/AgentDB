@@ -226,7 +226,7 @@
   V.generateApiKey = async function(key) {
     var bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
-    var newKey = 'agentdb_' + Array.from(bytes).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    var newKey = 'swadb_' + Array.from(bytes).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
     document.getElementById('cfg-' + key).value = newKey;
     await AgentDB.api('PUT', '/api/config/' + key, { value: newKey });
     AgentDB.toast('API key generated and saved', 'success');

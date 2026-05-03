@@ -19,8 +19,8 @@ import json
 import uuid
 from datetime import datetime
 
-from agentdb import crud
-from agentdb.embeddings import (
+from swadb import crud
+from swadb.embeddings import (
     generate_embedding,
     embedding_to_blob,
     blob_to_embedding,

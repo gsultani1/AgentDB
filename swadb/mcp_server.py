@@ -1,9 +1,9 @@
 """MCP Server for AgentDB. Exposes capabilities as MCP tools."""
 from mcp.server.fastmcp import FastMCP
-from agentdb.database import get_connection
-from agentdb import crud
-from agentdb.context import retrieve_context
-from agentdb.embeddings import generate_embedding, embedding_to_blob
+from swadb.database import get_connection
+from swadb import crud
+from swadb.context import retrieve_context
+from swadb.embeddings import generate_embedding, embedding_to_blob
 
 mcp = FastMCP("AgentDB")
 _db_path = None
@@ -45,7 +45,7 @@ def search_memories(query: str, tier: str = "short", limit: int = 10) -> dict:
     """Semantic search across a memory tier."""
     conn = _get_conn()
     try:
-        from agentdb.embeddings import semantic_search, blob_to_embedding
+        from swadb.embeddings import semantic_search, blob_to_embedding
         query_emb = generate_embedding(query)
         table_map = {"short": "short_term_memory", "mid": "midterm_memory", "long": "long_term_memory"}
         table = table_map.get(tier, "short_term_memory")
@@ -110,7 +110,7 @@ def check_goals(context: str) -> dict:
     """Check which active goals are relevant to the given context."""
     conn = _get_conn()
     try:
-        from agentdb.embeddings import semantic_search, blob_to_embedding
+        from swadb.embeddings import semantic_search, blob_to_embedding
         query_emb = generate_embedding(context)
         rows = conn.execute("SELECT id, embedding FROM goals WHERE status = 'active' AND embedding IS NOT NULL").fetchall()
         candidates = [(r[0], blob_to_embedding(r[1])) for r in rows if r[1]]
@@ -142,7 +142,7 @@ def get_health() -> dict:
 @mcp.tool()
 def run_consolidation() -> dict:
     """Trigger a memory consolidation cycle."""
-    from agentdb.consolidation import run_consolidation_cycle
+    from swadb.consolidation import run_consolidation_cycle
     conn = _get_conn()
     try:
         return run_consolidation_cycle(conn)

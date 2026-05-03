@@ -10,12 +10,12 @@ import json
 import sys
 from pathlib import Path
 
-from agentdb.database import initialize_database, get_connection, verify_schema, DEFAULT_CONFIG
-from agentdb.schema import ALL_TABLES
-from agentdb import crud
+from swadb.database import initialize_database, get_connection, verify_schema, DEFAULT_CONFIG
+from swadb.schema import ALL_TABLES
+from swadb import crud
 
 
-DEFAULT_DB_PATH = Path("agentdb.db")
+DEFAULT_DB_PATH = Path("swadb.db")
 
 
 def cmd_init(args):
@@ -126,7 +126,7 @@ def cmd_memory_add(args):
     embedding = None
     if not args.no_embedding:
         try:
-            from agentdb.embeddings import generate_embedding, embedding_to_blob
+            from swadb.embeddings import generate_embedding, embedding_to_blob
             embedding = embedding_to_blob(generate_embedding(args.content))
         except ImportError:
             print("Warning: sentence-transformers not available. Skipping embedding.")
@@ -163,7 +163,7 @@ def cmd_memory_list(args):
 def cmd_memory_search(args):
     """Semantic search across a memory tier."""
     try:
-        from agentdb.embeddings import generate_embedding, semantic_search
+        from swadb.embeddings import generate_embedding, semantic_search
     except ImportError:
         print("Error: sentence-transformers required for semantic search.")
         sys.exit(1)
@@ -214,9 +214,9 @@ def cmd_serve(args):
     """Start the AgentDB HTTP server."""
     db_path = Path(args.db)
     if not db_path.exists():
-        print(f"Database not found at {db_path}. Run 'agentdb init' first.")
+        print(f"Database not found at {db_path}. Run 'swadb init' first.")
         sys.exit(1)
-    from agentdb.server import run_server
+    from swadb.server import run_server
     run_server(str(db_path), host=args.host, port=args.port)
 
 
@@ -224,16 +224,16 @@ def cmd_mcp(args):
     """Start the MCP server."""
     db_path = Path(args.db)
     if not db_path.exists():
-        print(f"Database not found at {db_path}. Run 'agentdb init' first.")
+        print(f"Database not found at {db_path}. Run 'swadb init' first.")
         sys.exit(1)
-    from agentdb.mcp_server import run_mcp_server
+    from swadb.mcp_server import run_mcp_server
     run_mcp_server(str(db_path), transport=args.transport)
 
 
 def build_parser():
     """Build the argument parser."""
     parser = argparse.ArgumentParser(
-        prog="agentdb",
+        prog="swadb",
         description="AgentDB - Sovereign Agent Memory System",
     )
     parser.add_argument(
@@ -337,7 +337,7 @@ def main():
         if args.config_command in config_dispatch:
             config_dispatch[args.config_command](args)
         else:
-            print("Usage: agentdb config {list|get|set}")
+            print("Usage: swadb config {list|get|set}")
     elif args.command == "memory":
         mem_dispatch = {
             "add": cmd_memory_add,
@@ -347,12 +347,12 @@ def main():
         if args.memory_command in mem_dispatch:
             mem_dispatch[args.memory_command](args)
         else:
-            print("Usage: agentdb memory {add|list|search}")
+            print("Usage: swadb memory {add|list|search}")
     elif args.command == "entity":
         if args.entity_command == "list":
             cmd_entity_list(args)
         else:
-            print("Usage: agentdb entity {list}")
+            print("Usage: swadb entity {list}")
     elif args.command == "session":
         sess_dispatch = {
             "start": cmd_session_start,
@@ -361,7 +361,7 @@ def main():
         if args.session_command in sess_dispatch:
             sess_dispatch[args.session_command](args)
         else:
-            print("Usage: agentdb session {start|end}")
+            print("Usage: swadb session {start|end}")
     else:
         parser.print_help()
 

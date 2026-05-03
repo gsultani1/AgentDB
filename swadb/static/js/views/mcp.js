@@ -17,8 +17,8 @@
   const CONNECTION_EXAMPLES = {
     claude: `{
   "mcpServers": {
-    "agentdb": {
-      "command": "agentdb",
+    "swadb": {
+      "command": "swadb",
       "args": ["mcp", "--transport", "stdio"],
       "env": {}
     }
@@ -26,17 +26,17 @@
 }`,
     cursor: `{
   "mcpServers": {
-    "agentdb": {
-      "command": "agentdb",
+    "swadb": {
+      "command": "swadb",
       "args": ["mcp", "--transport", "stdio"]
     }
   }
 }`,
     generic: `# stdio transport (default)
-agentdb mcp --transport stdio
+swadb mcp --transport stdio
 
 # SSE transport (HTTP-based)
-agentdb mcp --transport sse --port 8421
+swadb mcp --transport sse --port 8421
 
 # Connect via SSE endpoint
 # URL: http://localhost:8421/sse`

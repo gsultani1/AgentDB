@@ -16,8 +16,8 @@ import os
 import subprocess
 from datetime import datetime
 
-from agentdb import crud
-from agentdb.markdown_parser import process_markdown_document
+from swadb import crud
+from swadb.markdown_parser import process_markdown_document
 
 
 def sync_from_git(conn, config=None):
@@ -182,7 +182,7 @@ def commit_to_git(conn, markdown_content, doc_type, name, config=None):
             ["git", "-C", repo_path, "add", file_path],
             capture_output=True, timeout=10,
         )
-        commit_msg = f"agentdb: [{doc_type}] {name} (via UI)"
+        commit_msg = f"swadb: [{doc_type}] {name} (via UI)"
         subprocess.run(
             ["git", "-C", repo_path, "commit", "-m", commit_msg],
             capture_output=True, timeout=10,

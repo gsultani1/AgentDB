@@ -7,8 +7,10 @@ default meta_config seeding, and optional SQLCipher encryption.
 SQLCipher support
 ─────────────────
 Install `sqlcipher3` (pip install sqlcipher3) or `pysqlcipher3` to enable
-at-rest encryption.  The passphrase is read from the AGENTDB_PASSPHRASE
-environment variable, or passed explicitly to get_connection().
+at-rest encryption.  The passphrase is read from the SWADB_PASSPHRASE
+environment variable (with AGENTDB_PASSPHRASE accepted as a deprecated
+fallback during the rename transition), or passed explicitly to
+get_connection().
 
 When encryption_enabled = "true" in meta_config but no passphrase is
 available, get_connection() falls back to plain SQLite and logs a warning.
@@ -20,7 +22,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from agentdb.schema import ALL_TABLES, ALL_TRIGGERS, CREATE_INDEXES, CREATE_FTS_TABLES, FTS_SYNC_TRIGGERS
+from swadb.schema import ALL_TABLES, ALL_TRIGGERS, CREATE_INDEXES, CREATE_FTS_TABLES, FTS_SYNC_TRIGGERS
 
 
 # ── SQLCipher detection ───────────────────────────────────────────────────────
@@ -107,23 +109,48 @@ DEFAULT_CONFIG = {
 }
 
 
+def _read_passphrase_env():
+    """
+    Read the encryption passphrase from the environment.
+
+    SWADB_PASSPHRASE is canonical. AGENTDB_PASSPHRASE is honored as a
+    deprecated fallback so existing encrypted databases continue to open
+    after the package rename; a one-shot warning is printed in that case.
+    """
+    val = os.environ.get("SWADB_PASSPHRASE")
+    if val:
+        return val
+    legacy = os.environ.get("AGENTDB_PASSPHRASE")
+    if legacy:
+        if not getattr(_read_passphrase_env, "_warned", False):
+            print(
+                "Warning: AGENTDB_PASSPHRASE is deprecated; rename it to "
+                "SWADB_PASSPHRASE. The legacy variable will stop being read "
+                "in a future release."
+            )
+            _read_passphrase_env._warned = True
+        return legacy
+    return None
+
+
 def get_connection(db_path, passphrase=None):
     """
     Open a connection to the AgentDB SQLite database.
 
     Args:
         db_path:    Path to the .db file (str or Path).
-        passphrase: Optional encryption passphrase.  When None, the value of
-                    the AGENTDB_PASSPHRASE environment variable is used.  If
-                    neither is set, or if SQLCipher is not installed, a plain
-                    SQLite connection is returned.
+        passphrase: Optional encryption passphrase. When None, the value of
+                    the SWADB_PASSPHRASE environment variable is used (with
+                    AGENTDB_PASSPHRASE accepted as a deprecated fallback).
+                    If neither is set, or if SQLCipher is not installed, a
+                    plain SQLite connection is returned.
 
     Returns:
         sqlite3.Connection (or sqlcipher3 equivalent) with WAL mode and
         foreign keys enabled.
     """
     db_path = str(db_path)
-    passphrase = passphrase or os.environ.get("AGENTDB_PASSPHRASE")
+    passphrase = passphrase or _read_passphrase_env()
 
     if passphrase and _SQLCIPHER is not None:
         conn = _SQLCIPHER.connect(db_path)
@@ -136,7 +163,7 @@ def get_connection(db_path, passphrase=None):
 
     if passphrase and _SQLCIPHER is None:
         print(
-            "Warning: AGENTDB_PASSPHRASE is set but sqlcipher3 / pysqlcipher3 "
+            "Warning: encryption passphrase is set but sqlcipher3 / pysqlcipher3 "
             "is not installed. Falling back to plain SQLite (data unencrypted)."
         )
 
@@ -151,7 +178,7 @@ def encryption_status():
     """Return a dict describing the current SQLCipher availability."""
     return {
         "sqlcipher_available": _SQLCIPHER is not None,
-        "passphrase_set": bool(os.environ.get("AGENTDB_PASSPHRASE")),
+        "passphrase_set": bool(_read_passphrase_env()),
         "library": (
             "sqlcipher3" if _SQLCIPHER is not None else None
         ),
