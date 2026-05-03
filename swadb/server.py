@@ -344,6 +344,14 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 crud.delete_scheduled_task(conn, m["id"])
                 return _json_response(self, 200, data={"deleted": m["id"]})
+            m = _match("/api/workspaces/{id}", path)
+            if m:
+                # Workspace files have FK to workspaces — must clean those up
+                # first (the schema has no ON DELETE CASCADE).
+                conn.execute("DELETE FROM workspace_files WHERE workspace_id = ?", (m["id"],))
+                crud.delete_workspace(conn, m["id"])
+                conn.commit()
+                return _json_response(self, 200, data={"deleted": m["id"]})
             m = _match("/api/providers/{id}", path)
             if m:
                 crud.delete_llm_provider(conn, m["id"])
@@ -697,6 +705,22 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return self._op_view_create(conn, body)
             if path == "/api/agents":
                 return self._op_agent_create(conn, body)
+            if path == "/api/workspaces":
+                name = (body.get("name") or "").strip()
+                root_path = (body.get("root_path") or "").strip()
+                ws_type = (body.get("workspace_type") or "project_folder").strip()
+                if not name or not root_path:
+                    return _json_response(self, 400, error="name and root_path are required")
+                if ws_type not in ("codebase", "project_folder", "data_directory"):
+                    return _json_response(self, 400,
+                        error="workspace_type must be one of: codebase, project_folder, data_directory")
+                if not os.path.isdir(root_path):
+                    return _json_response(self, 400,
+                        error=f"root_path is not a directory or does not exist: {root_path}")
+                wid = crud.create_workspace(conn, name=name, root_path=root_path,
+                                            workspace_type=ws_type,
+                                            metadata=body.get("metadata"))
+                return _json_response(self, 201, data={"id": wid})
             if path == "/api/notifications/dismiss":
                 crud.dismiss_read_notifications(conn)
                 return _json_response(self, 200, data={"message": "Read notifications dismissed"})
@@ -1248,6 +1272,19 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             m = _match("/api/agents/{id}", path)
             if m:
                 result = crud.update_agent(conn, m["id"], **body)
+                return _json_response(self, 200, data={"id": m["id"], "updated": result})
+            m = _match("/api/workspaces/{id}", path)
+            if m:
+                # Validate root_path if it's being changed
+                new_root = body.get("root_path")
+                if new_root and not os.path.isdir(new_root):
+                    return _json_response(self, 400,
+                        error=f"root_path is not a directory: {new_root}")
+                ws_type = body.get("workspace_type")
+                if ws_type and ws_type not in ("codebase", "project_folder", "data_directory"):
+                    return _json_response(self, 400,
+                        error="workspace_type must be one of: codebase, project_folder, data_directory")
+                result = crud.update_workspace(conn, m["id"], **body)
                 return _json_response(self, 200, data={"id": m["id"], "updated": result})
             m = _match("/api/memories/short/{id}", path)
             if m:
@@ -1900,6 +1937,24 @@ class AgentDBHandler(BaseHTTPRequestHandler):
 
     def _op_workspaces_list(self, conn):
         workspaces = crud.list_workspaces(conn)
+        # Annotate each row with a file count + lightweight type breakdown so
+        # the UI doesn't need a separate fetch per workspace.
+        counts = {}
+        try:
+            for r in conn.execute(
+                "SELECT workspace_id, file_type, COUNT(*) AS n "
+                "FROM workspace_files GROUP BY workspace_id, file_type"
+            ).fetchall():
+                wid = r["workspace_id"]
+                bucket = counts.setdefault(wid, {"total": 0, "by_type": {}})
+                bucket["total"] += r["n"]
+                bucket["by_type"][r["file_type"]] = r["n"]
+        except Exception:
+            counts = {}
+        for ws in workspaces:
+            ws_counts = counts.get(ws["id"], {"total": 0, "by_type": {}})
+            ws["file_count"] = ws_counts["total"]
+            ws["file_types"] = ws_counts["by_type"]
         _json_response(self, 200, data=workspaces)
 
     def _op_watcher_status(self, conn):

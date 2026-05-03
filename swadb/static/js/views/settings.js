@@ -132,6 +132,22 @@
       html += '</div></div>';
     });
 
+    // Workspaces section (loaded async after render)
+    html += '<div class="card" style="margin-bottom:16px"><h3>Workspaces</h3>';
+    html += '<p style="font-size:12px;color:var(--text2);margin-bottom:12px">Register code or document directories to be scanned and indexed alongside agent memory.</p>';
+    html += '<div id="workspaces-panel"><div style="color:var(--text2);font-size:13px">Loading…</div></div>';
+    html += '<div id="add-workspace-form" style="display:none;margin-top:12px;padding:12px;background:var(--bg3);border-radius:6px">';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+    html += '<div><label style="font-size:12px;color:var(--text2)">Name</label><input type="text" id="ws-name" placeholder="My Project" style="width:100%"></div>';
+    html += '<div><label style="font-size:12px;color:var(--text2)">Type</label><select id="ws-type" style="width:100%"><option value="codebase">Codebase</option><option value="project_folder" selected>Project Folder</option><option value="data_directory">Data Directory</option></select></div>';
+    html += '<div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text2)">Root Path (absolute)</label><input type="text" id="ws-path" placeholder="C:\\\\Users\\\\you\\\\projects\\\\foo" style="width:100%;font-family:var(--mono);font-size:12px"></div>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-primary" id="save-workspace-btn">Add Workspace</button><button class="btn" id="cancel-workspace-btn">Cancel</button></div>';
+    html += '</div>';
+    html += '<button class="btn" style="margin-top:10px" id="show-add-workspace-btn">+ Add Workspace</button>';
+    html += '<button class="btn" style="margin-top:10px;margin-left:6px" id="scan-all-workspaces-btn">Scan All</button>';
+    html += '</div>';
+
     // Encryption section (loaded async after render)
     html += '<div class="card" style="margin-bottom:16px"><h3>Encryption</h3>';
     html += '<div id="encryption-panel"><div style="color:var(--text2);font-size:13px">Loading…</div></div>';
@@ -164,8 +180,29 @@
       }
     });
 
-    // Load providers + encryption status
+    // Wire workspace buttons
+    document.getElementById('show-add-workspace-btn').onclick = function() {
+      document.getElementById('add-workspace-form').style.display = 'block';
+    };
+    document.getElementById('cancel-workspace-btn').onclick = function() {
+      document.getElementById('add-workspace-form').style.display = 'none';
+      document.getElementById('ws-name').value = '';
+      document.getElementById('ws-path').value = '';
+    };
+    document.getElementById('save-workspace-btn').onclick = V.createWorkspace;
+    document.getElementById('scan-all-workspaces-btn').onclick = V.scanAllWorkspaces;
+    document.getElementById('workspaces-panel').addEventListener('click', function(e) {
+      var btn;
+      if ((btn = e.target.closest('[data-scan-workspace]'))) {
+        V.scanWorkspace(btn.dataset.scanWorkspace);
+      } else if ((btn = e.target.closest('[data-del-workspace]'))) {
+        V.deleteWorkspace(btn.dataset.delWorkspace);
+      }
+    });
+
+    // Load providers + workspaces + encryption status
     V.loadProviders();
+    V.loadWorkspaces();
     V.loadEncryption();
   };
 
@@ -270,6 +307,109 @@
       AgentDB.toast(action + ' completed', 'success');
     } else {
       AgentDB.toast(action + ' failed: ' + (r.error || 'Unknown'), 'error');
+    }
+  };
+
+  // ── Workspaces ──────────────────────────────────────────────────────
+  V.loadWorkspaces = async function() {
+    var panel = document.getElementById('workspaces-panel');
+    if (!panel) return;
+    var r = await AgentDB.api('GET', '/api/workspaces');
+    if (r.status !== 'ok') {
+      panel.innerHTML = '<div style="color:var(--red);font-size:13px">Failed to load workspaces</div>';
+      return;
+    }
+    var workspaces = r.data || [];
+    if (workspaces.length === 0) {
+      panel.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:8px 0">No workspaces registered yet.</div>';
+      return;
+    }
+    var html = '<div style="display:grid;grid-template-columns:1fr;gap:8px">';
+    workspaces.forEach(function(ws) {
+      var typeBadge = '<span style="background:var(--bg3);padding:2px 8px;border-radius:8px;font-size:11px;font-family:var(--mono)">' + AgentDB.esc(ws.workspace_type) + '</span>';
+      var fileCount = ws.file_count || 0;
+      var typeBreakdown = '';
+      if (ws.file_types && Object.keys(ws.file_types).length > 0) {
+        typeBreakdown = ' (' + Object.keys(ws.file_types).map(function(k) {
+          return AgentDB.esc(k) + ': ' + ws.file_types[k];
+        }).join(', ') + ')';
+      }
+      var lastScanned = ws.last_scanned
+        ? 'Last scanned: ' + AgentDB.esc(ws.last_scanned)
+        : '<span style="color:#f59e0b">Never scanned</span>';
+      html += '<div style="background:var(--bg3);padding:10px 12px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;gap:12px">';
+      html += '<div style="flex:1;min-width:0">';
+      html += '<div style="font-weight:600;margin-bottom:2px">' + AgentDB.esc(ws.name) + ' ' + typeBadge + '</div>';
+      html += '<div style="font-family:var(--mono);font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis">' + AgentDB.esc(ws.root_path) + '</div>';
+      html += '<div style="font-size:11px;color:var(--text2);margin-top:2px">' +
+              fileCount + ' file' + (fileCount === 1 ? '' : 's') + typeBreakdown + ' • ' + lastScanned + '</div>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:6px;flex-shrink:0">';
+      html += '<button class="btn btn-sm" data-scan-workspace="' + AgentDB.esc(ws.id) + '">Scan</button>';
+      html += '<button class="btn btn-sm" style="color:var(--red)" data-del-workspace="' + AgentDB.esc(ws.id) + '">Delete</button>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+    panel.innerHTML = html;
+  };
+
+  V.createWorkspace = async function() {
+    var name = document.getElementById('ws-name').value.trim();
+    var path = document.getElementById('ws-path').value.trim();
+    var type = document.getElementById('ws-type').value;
+    if (!name || !path) {
+      AgentDB.toast('Name and root path are required', 'error');
+      return;
+    }
+    var r = await AgentDB.api('POST', '/api/workspaces', {
+      name: name, root_path: path, workspace_type: type
+    });
+    if (r.status === 'ok') {
+      AgentDB.toast('Workspace registered', 'success');
+      document.getElementById('add-workspace-form').style.display = 'none';
+      document.getElementById('ws-name').value = '';
+      document.getElementById('ws-path').value = '';
+      V.loadWorkspaces();
+    } else {
+      AgentDB.toast('Failed: ' + (r.error || 'unknown'), 'error');
+    }
+  };
+
+  V.scanWorkspace = async function(id) {
+    AgentDB.toast('Scanning workspace…', 'info');
+    var r = await AgentDB.api('POST', '/api/workspaces/' + id + '/scan');
+    if (r.status === 'ok' && r.data) {
+      var d = r.data;
+      var msg = 'Scan complete: +' + (d.files_added || 0) +
+                ' / ~' + (d.files_updated || 0) +
+                ' / -' + (d.files_removed || 0) +
+                ' / =' + (d.files_unchanged || 0);
+      AgentDB.toast(msg, 'success');
+      V.loadWorkspaces();
+    } else {
+      AgentDB.toast('Scan failed: ' + (r.error || 'unknown'), 'error');
+    }
+  };
+
+  V.scanAllWorkspaces = async function() {
+    AgentDB.toast('Scanning all workspaces…', 'info');
+    var r = await AgentDB.api('POST', '/api/workspaces/scan');
+    if (r.status === 'ok') {
+      AgentDB.toast('Scan complete', 'success');
+      V.loadWorkspaces();
+    } else {
+      AgentDB.toast('Scan failed: ' + (r.error || 'unknown'), 'error');
+    }
+  };
+
+  V.deleteWorkspace = async function(id) {
+    if (!confirm('Delete this workspace and all its indexed files?')) return;
+    var r = await AgentDB.api('DELETE', '/api/workspaces/' + id);
+    if (r.status === 'ok') {
+      AgentDB.toast('Workspace deleted', 'success');
+      V.loadWorkspaces();
+    } else {
+      AgentDB.toast('Delete failed: ' + (r.error || 'unknown'), 'error');
     }
   };
 
