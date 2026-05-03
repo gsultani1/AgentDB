@@ -44,7 +44,6 @@
       { key: 'sleep_idle_threshold_seconds', label: 'Idle Threshold (s)', type: 'number', hint: 'Seconds of inactivity before entering sleep mode' },
       { key: 'sleep_reflection_enabled', label: 'Sleep Reflection', type: 'toggle', hint: 'Generate reflection summaries during sleep cycles' },
       { key: 'sleep_graph_pruning_threshold_days', label: 'Graph Pruning (days)', type: 'number', hint: 'Days before pruning unused graph edges during sleep' },
-      { key: 'encryption_enabled', label: 'Encryption', type: 'toggle', hint: 'Enable at-rest encryption for sensitive memory content' },
     ],
   };
 
@@ -133,6 +132,11 @@
       html += '</div></div>';
     });
 
+    // Encryption section (loaded async after render)
+    html += '<div class="card" style="margin-bottom:16px"><h3>Encryption</h3>';
+    html += '<div id="encryption-panel"><div style="color:var(--text2);font-size:13px">Loading…</div></div>';
+    html += '</div>';
+
     // Maintenance section
     html += '<div class="card" style="margin-bottom:16px"><h3>Maintenance</h3>';
     html += '<div style="display:flex;gap:12px;margin-top:12px">';
@@ -160,8 +164,9 @@
       }
     });
 
-    // Load providers
+    // Load providers + encryption status
     V.loadProviders();
+    V.loadEncryption();
   };
 
   V.loadProviders = async function() {
@@ -265,6 +270,136 @@
       AgentDB.toast(action + ' completed', 'success');
     } else {
       AgentDB.toast(action + ' failed: ' + (r.error || 'Unknown'), 'error');
+    }
+  };
+
+  // ── Encryption ──────────────────────────────────────────────────────
+  V.loadEncryption = async function() {
+    var panel = document.getElementById('encryption-panel');
+    if (!panel) return;
+    var r = await AgentDB.api('GET', '/api/encryption/status');
+    if (r.status !== 'ok' || !r.data) {
+      panel.innerHTML = '<div style="color:var(--red);font-size:13px">Failed to load encryption status</div>';
+      return;
+    }
+    var s = r.data;
+    var html = '';
+
+    // Status grid
+    var libBadge = s.sqlcipher_available
+      ? '<span style="background:#22c55e;color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">' + AgentDB.esc(s.library || 'available') + '</span>'
+      : '<span style="background:var(--red);color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">not installed</span>';
+    var dbBadge = s.db_encrypted
+      ? '<span style="background:#22c55e;color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">encrypted</span>'
+      : '<span style="background:var(--text2);color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">plaintext</span>';
+    var passBadge = s.passphrase_set
+      ? '<span style="background:#22c55e;color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">set</span>'
+      : '<span style="background:var(--text2);color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">not set</span>';
+
+    html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px;margin-bottom:12px">';
+    html += '<div style="color:var(--text2)">SQLCipher library:</div><div>' + libBadge + '</div>';
+    html += '<div style="color:var(--text2)">Database file:</div><div>' + dbBadge + ' <span style="color:var(--text2);font-size:11px;margin-left:6px">' + AgentDB.esc(s.db_path || '') + '</span></div>';
+    html += '<div style="color:var(--text2)">SWADB_PASSPHRASE env:</div><div>' + passBadge + '</div>';
+    html += '</div>';
+
+    // Drift warning: config flag says encrypted but DB is plaintext (or vice versa)
+    if (s.encryption_enabled_config === true && !s.db_encrypted) {
+      html += '<div style="background:#f59e0b;color:#000;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:12px">' +
+        '⚠ encryption_enabled is set but the DB file is plaintext. Click Enable Encryption below to fix.</div>';
+    }
+    if (s.encryption_enabled_config === false && s.db_encrypted) {
+      html += '<div style="background:#f59e0b;color:#000;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:12px">' +
+        '⚠ encryption_enabled is false but the DB file is encrypted. Configuration drift.</div>';
+    }
+
+    if (!s.sqlcipher_available) {
+      html += '<div style="background:var(--bg3);padding:10px 12px;border-radius:6px;font-size:13px">';
+      html += '<div style="font-weight:600;margin-bottom:4px">Install SQLCipher to enable encryption</div>';
+      html += '<div style="color:var(--text2);font-family:var(--mono);font-size:12px">pip install sqlcipher3</div>';
+      html += '<div style="color:var(--text2);font-size:11px;margin-top:6px">After install, restart the server. Encryption uses AES-256 in CBC mode with HMAC-SHA512 page authentication.</div>';
+      html += '</div>';
+      panel.innerHTML = html;
+      return;
+    }
+
+    // Action sections
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+
+    // Enable encryption (only if currently plaintext)
+    if (!s.db_encrypted) {
+      html += '<div style="background:var(--bg3);padding:12px;border-radius:6px">';
+      html += '<div style="font-weight:600;margin-bottom:8px">Enable Encryption</div>';
+      html += '<input type="password" id="enc-new-pass" placeholder="New passphrase" style="width:100%;margin-bottom:6px">';
+      html += '<input type="password" id="enc-new-pass-confirm" placeholder="Confirm passphrase" style="width:100%;margin-bottom:8px">';
+      html += '<button class="btn btn-primary" style="width:100%" onclick="AgentDB.views.settings.enableEncryption()">Encrypt Database</button>';
+      html += '<div style="color:var(--text2);font-size:11px;margin-top:6px">Server restart required after encryption. Set SWADB_PASSPHRASE before restart.</div>';
+      html += '</div>';
+    } else {
+      // Rekey + Decrypt are only meaningful when DB is currently encrypted
+      html += '<div style="background:var(--bg3);padding:12px;border-radius:6px">';
+      html += '<div style="font-weight:600;margin-bottom:8px">Rekey (change passphrase)</div>';
+      html += '<input type="password" id="enc-old-pass-rekey" placeholder="Current passphrase" style="width:100%;margin-bottom:6px">';
+      html += '<input type="password" id="enc-new-pass-rekey" placeholder="New passphrase" style="width:100%;margin-bottom:8px">';
+      html += '<button class="btn btn-primary" style="width:100%" onclick="AgentDB.views.settings.rekeyEncryption()">Rekey</button>';
+      html += '<div style="color:var(--text2);font-size:11px;margin-top:6px">Update SWADB_PASSPHRASE to the new value before restart.</div>';
+      html += '</div>';
+
+      html += '<div style="background:var(--bg3);padding:12px;border-radius:6px">';
+      html += '<div style="font-weight:600;margin-bottom:8px">Disable Encryption</div>';
+      html += '<input type="password" id="enc-old-pass-decrypt" placeholder="Current passphrase" style="width:100%;margin-bottom:8px">';
+      html += '<button class="btn" style="width:100%;color:var(--red);border-color:var(--red)" onclick="AgentDB.views.settings.disableEncryption()">Decrypt Database</button>';
+      html += '<div style="color:var(--text2);font-size:11px;margin-top:6px">⚠ Removes encryption. Backup kept as <code>.predecrypt.bak</code> until you delete it.</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    panel.innerHTML = html;
+  };
+
+  V.enableEncryption = async function() {
+    var p = document.getElementById('enc-new-pass').value;
+    var p2 = document.getElementById('enc-new-pass-confirm').value;
+    if (!p) { AgentDB.toast('Passphrase is required', 'error'); return; }
+    if (p !== p2) { AgentDB.toast('Passphrases do not match', 'error'); return; }
+    if (!confirm('Encrypt the database? Server must be restarted afterward with SWADB_PASSPHRASE set.')) return;
+    AgentDB.toast('Encrypting database…', 'info');
+    var r = await AgentDB.api('POST', '/api/encryption/enable', { passphrase: p });
+    if (r.status === 'ok') {
+      AgentDB.toast('Database encrypted. Set SWADB_PASSPHRASE and restart the server.', 'success');
+      V.loadEncryption();
+    } else {
+      AgentDB.toast('Encrypt failed: ' + (r.error || 'unknown'), 'error');
+    }
+  };
+
+  V.rekeyEncryption = async function() {
+    var oldP = document.getElementById('enc-old-pass-rekey').value;
+    var newP = document.getElementById('enc-new-pass-rekey').value;
+    if (!oldP || !newP) { AgentDB.toast('Both passphrases are required', 'error'); return; }
+    if (!confirm('Change the encryption passphrase? Update SWADB_PASSPHRASE to the new value before restart.')) return;
+    AgentDB.toast('Rekeying database…', 'info');
+    var r = await AgentDB.api('POST', '/api/encryption/rekey', {
+      old_passphrase: oldP, new_passphrase: newP
+    });
+    if (r.status === 'ok') {
+      AgentDB.toast('Rekeyed. Update SWADB_PASSPHRASE and restart the server.', 'success');
+      V.loadEncryption();
+    } else {
+      AgentDB.toast('Rekey failed: ' + (r.error || 'unknown'), 'error');
+    }
+  };
+
+  V.disableEncryption = async function() {
+    var p = document.getElementById('enc-old-pass-decrypt').value;
+    if (!p) { AgentDB.toast('Passphrase is required to decrypt', 'error'); return; }
+    if (!confirm('Decrypt the database (remove encryption)? An encrypted backup is kept as .predecrypt.bak. Server restart required.')) return;
+    AgentDB.toast('Decrypting database…', 'info');
+    var r = await AgentDB.api('POST', '/api/encryption/disable', { passphrase: p });
+    if (r.status === 'ok') {
+      AgentDB.toast('Database decrypted. Restart the server (SWADB_PASSPHRASE no longer needed).', 'success');
+      V.loadEncryption();
+    } else {
+      AgentDB.toast('Decrypt failed: ' + (r.error || 'unknown'), 'error');
     }
   };
 })();

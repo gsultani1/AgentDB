@@ -6,3 +6,9 @@ mcp>=1.0.0
 # Without it, swadb falls back to brute-force cosine similarity (correct, just
 # O(n) per query). Recommended once memory count exceeds ~10k.
 hnswlib>=0.8.0; python_version >= "3.9"
+
+# Optional: SQLCipher for at-rest database encryption. Without it, the
+# Encryption section in Settings is read-only and reports "library not
+# installed". Backend gracefully falls back to plain SQLite if the file
+# is plaintext.
+sqlcipher3>=0.5.0; python_version >= "3.9"

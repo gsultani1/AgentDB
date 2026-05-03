@@ -163,6 +163,15 @@ def get_connection(db_path, passphrase=None):
     db_path = str(db_path)
     passphrase = passphrase or _read_passphrase_env()
 
+    # Refuse to silently downgrade if the file on disk is encrypted but we
+    # have no passphrase. Otherwise we'd return a plain sqlite3 connection
+    # whose first read would error obscurely deep in the request path.
+    if passphrase is None and is_db_encrypted(db_path):
+        raise RuntimeError(
+            f"Database at {db_path} is encrypted but no passphrase was provided. "
+            "Set SWADB_PASSPHRASE in the environment or pass passphrase= explicitly."
+        )
+
     if passphrase and _SQLCIPHER is not None:
         conn = _SQLCIPHER.connect(db_path)
         # PRAGMA key must be the very first statement on an encrypted database
@@ -185,25 +194,55 @@ def get_connection(db_path, passphrase=None):
     return conn
 
 
-def encryption_status():
-    """Return a dict describing the current SQLCipher availability."""
-    return {
+def is_db_encrypted(db_path):
+    """
+    Detect whether a .db file is encrypted by attempting a plain-SQLite open.
+
+    Encrypted SQLCipher databases have an encrypted page header, so plain
+    SQLite errors with "file is not a database" on any read. Returns False
+    if the file doesn't exist (a not-yet-created DB is "not encrypted").
+    """
+    db_path = str(db_path)
+    if not Path(db_path).exists():
+        return False
+    try:
+        probe = sqlite3.connect(db_path)
+        try:
+            probe.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+            return False  # readable as plain SQLite
+        finally:
+            probe.close()
+    except sqlite3.DatabaseError:
+        return True
+
+
+def encryption_status(db_path=None):
+    """
+    Return a dict describing encryption library availability and (optionally)
+    whether a specific database file is currently encrypted.
+    """
+    out = {
         "sqlcipher_available": _SQLCIPHER is not None,
         "passphrase_set": bool(_read_passphrase_env()),
-        "library": (
-            "sqlcipher3" if _SQLCIPHER is not None else None
-        ),
+        "library": "sqlcipher3" if _SQLCIPHER is not None else None,
+        "encryption_enabled_config": None,  # caller can fill from meta_config
     }
+    if db_path is not None:
+        out["db_path"] = str(db_path)
+        out["db_encrypted"] = is_db_encrypted(db_path)
+    return out
 
 
 def rekey_database(db_path, old_passphrase, new_passphrase):
     """
-    Change the encryption passphrase on an existing SQLCipher database.
+    Change the encryption passphrase on an already-encrypted SQLCipher database.
 
     Args:
         db_path:        Path to the encrypted .db file.
-        old_passphrase: Current passphrase (or None for an unencrypted DB).
-        new_passphrase: New passphrase (or None to decrypt).
+        old_passphrase: Current passphrase.
+        new_passphrase: New passphrase (or empty/None to also decrypt — though
+                        encrypt_database/decrypt_database are clearer choices
+                        for that direction).
 
     Raises:
         RuntimeError if SQLCipher is not available.
@@ -218,6 +257,126 @@ def rekey_database(db_path, old_passphrase, new_passphrase):
     else:
         conn.execute("PRAGMA rekey = '';")
     conn.close()
+
+
+def encrypt_database(db_path, passphrase):
+    """
+    Convert a plaintext SQLite database to a SQLCipher-encrypted one.
+
+    Uses SQLCipher's `sqlcipher_export` to copy every page into a fresh
+    encrypted file, then atomically swaps the original. The original is
+    preserved with a `.preencrypt.bak` suffix until the swap succeeds, so a
+    crash mid-operation leaves the DB recoverable.
+
+    Caller must ensure no other process has the DB open. The server should
+    be restarted after this returns so the in-process connection picks up
+    the encrypted file.
+
+    Raises:
+        RuntimeError if SQLCipher is not available.
+        FileNotFoundError if db_path does not exist.
+        ValueError if the DB is already encrypted.
+    """
+    if _SQLCIPHER is None:
+        raise RuntimeError(
+            "sqlcipher3 or pysqlcipher3 must be installed to use encrypt_database."
+        )
+    if not passphrase:
+        raise ValueError("passphrase must be a non-empty string")
+    src = Path(db_path)
+    if not src.exists():
+        raise FileNotFoundError(f"database not found: {db_path}")
+    if is_db_encrypted(src):
+        raise ValueError(f"database at {db_path} is already encrypted; use rekey instead")
+
+    # 1) Build a fresh encrypted DB next to the source.
+    tmp = src.with_suffix(src.suffix + ".encrypted.tmp")
+    if tmp.exists():
+        tmp.unlink()
+
+    plain = sqlite3.connect(str(src))
+    try:
+        # The ATTACH + sqlcipher_export pattern has to run from a SQLCipher
+        # connection so that the cryptographic page handler is active for
+        # the attached side. Open the source via SQLCipher (no key set; an
+        # unkeyed SQLCipher connection reads plaintext SQLite fine).
+        bridge = _SQLCIPHER.connect(str(src))
+        try:
+            bridge.execute(f"ATTACH DATABASE '{tmp}' AS encrypted KEY '{passphrase}';")
+            bridge.execute("SELECT sqlcipher_export('encrypted');")
+            bridge.execute("DETACH DATABASE encrypted;")
+            bridge.commit()
+        finally:
+            bridge.close()
+    finally:
+        plain.close()
+
+    # 2) Atomically swap. Keep the plain DB as a backup until success.
+    backup = src.with_suffix(src.suffix + ".preencrypt.bak")
+    if backup.exists():
+        backup.unlink()
+    src.rename(backup)
+    try:
+        tmp.rename(src)
+    except Exception:
+        # Restore on failure
+        backup.rename(src)
+        raise
+    # Success — keep .preencrypt.bak for one cycle so the user can restore
+    # if their passphrase is wrong; a follow-up `verify` flow can prune it.
+
+
+def decrypt_database(db_path, passphrase):
+    """
+    Inverse of encrypt_database: produce a plaintext SQLite copy from an
+    encrypted DB and atomically swap. The encrypted original is kept as
+    `.predecrypt.bak` until the swap succeeds.
+
+    Raises:
+        RuntimeError if SQLCipher is not available.
+        FileNotFoundError if db_path does not exist.
+        ValueError if the DB is not currently encrypted.
+    """
+    if _SQLCIPHER is None:
+        raise RuntimeError(
+            "sqlcipher3 or pysqlcipher3 must be installed to use decrypt_database."
+        )
+    if not passphrase:
+        raise ValueError("passphrase must be a non-empty string")
+    src = Path(db_path)
+    if not src.exists():
+        raise FileNotFoundError(f"database not found: {db_path}")
+    if not is_db_encrypted(src):
+        raise ValueError(f"database at {db_path} is not encrypted; nothing to decrypt")
+
+    tmp = src.with_suffix(src.suffix + ".plain.tmp")
+    if tmp.exists():
+        tmp.unlink()
+
+    bridge = _SQLCIPHER.connect(str(src))
+    try:
+        bridge.execute(f"PRAGMA key = '{passphrase}';")
+        # Probe that the key works before doing anything destructive
+        try:
+            bridge.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        except Exception as e:
+            raise ValueError(f"passphrase did not unlock the database: {e}")
+        bridge.execute(f"ATTACH DATABASE '{tmp}' AS plaintext KEY '';")
+        bridge.execute("SELECT sqlcipher_export('plaintext');")
+        bridge.execute("DETACH DATABASE plaintext;")
+        bridge.commit()
+    finally:
+        bridge.close()
+
+    backup = src.with_suffix(src.suffix + ".predecrypt.bak")
+    if backup.exists():
+        backup.unlink()
+    src.rename(backup)
+    try:
+        tmp.rename(src)
+    except Exception:
+        backup.rename(src)
+        raise
 
 
 def initialize_database(db_path):

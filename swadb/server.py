@@ -475,7 +475,13 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return self._op_watcher_status(conn)
             if path == "/api/encryption/status":
                 from swadb.database import encryption_status
-                return _json_response(self, 200, data=encryption_status())
+                status = encryption_status(_db_path)
+                # Include the meta_config flag so the UI can warn on
+                # configuration drift (flag says "encrypted" but file isn't).
+                status["encryption_enabled_config"] = (
+                    crud.get_config_value(conn, "encryption_enabled", "false") == "true"
+                )
+                return _json_response(self, 200, data=status)
 
             # Parameterized routes
             m = _match("/api/memories/{tier}", path)
@@ -767,11 +773,71 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 from swadb.database import rekey_database
                 old_pass = body.get("old_passphrase")
                 new_pass = body.get("new_passphrase")
+                if not old_pass or not new_pass:
+                    return _json_response(self, 400,
+                        error="old_passphrase and new_passphrase are both required")
                 try:
                     rekey_database(_db_path, old_pass, new_pass)
                     return _json_response(self, 200, data={"rekeyed": True})
                 except RuntimeError as e:
                     return _json_response(self, 400, error=str(e))
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
+            if path == "/api/encryption/enable":
+                # Convert a plaintext DB to encrypted. Requires server restart
+                # afterward so the in-process connection picks up the new file.
+                from swadb.database import encrypt_database
+                passphrase = body.get("passphrase")
+                if not passphrase:
+                    return _json_response(self, 400, error="passphrase is required")
+                try:
+                    # Close all open connections in this thread before swapping
+                    # the file. The server is single-threaded for HTTP so this
+                    # is the active conn.
+                    conn.close()
+                    encrypt_database(_db_path, passphrase)
+                    crud_conn = get_connection(_db_path, passphrase=passphrase)
+                    try:
+                        crud.set_config(crud_conn, "encryption_enabled", "true")
+                    finally:
+                        crud_conn.close()
+                    return _json_response(self, 200, data={
+                        "encrypted": True,
+                        "restart_required": True,
+                        "message": "Database encrypted. Restart the server with "
+                                   "SWADB_PASSPHRASE set to continue using it.",
+                    })
+                except (ValueError, FileNotFoundError) as e:
+                    return _json_response(self, 400, error=str(e))
+                except RuntimeError as e:
+                    return _json_response(self, 400, error=str(e))
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
+            if path == "/api/encryption/disable":
+                from swadb.database import decrypt_database
+                passphrase = body.get("passphrase")
+                if not passphrase:
+                    return _json_response(self, 400, error="passphrase is required")
+                try:
+                    conn.close()
+                    decrypt_database(_db_path, passphrase)
+                    crud_conn = get_connection(_db_path)
+                    try:
+                        crud.set_config(crud_conn, "encryption_enabled", "false")
+                    finally:
+                        crud_conn.close()
+                    return _json_response(self, 200, data={
+                        "decrypted": True,
+                        "restart_required": True,
+                        "message": "Database decrypted. Restart the server "
+                                   "(SWADB_PASSPHRASE no longer needed).",
+                    })
+                except (ValueError, FileNotFoundError) as e:
+                    return _json_response(self, 400, error=str(e))
+                except RuntimeError as e:
+                    return _json_response(self, 400, error=str(e))
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
             if path == "/api/markdown/submit":
                 return self._op_markdown_submit(conn, body)
             if path == "/api/markdown/batch":
