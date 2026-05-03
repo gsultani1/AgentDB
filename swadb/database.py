@@ -111,6 +111,12 @@ DEFAULT_CONFIG = {
     # When disabled or hnswlib is missing, retrieval falls back to brute-force.
     "ann_index_enabled": "true",
     "ann_rebuild_strategy": "after_consolidation",
+    # Sleep-time query pre-computation — sleep cycle picks the top-N most
+    # frequent queries from context_snapshots history, runs the full
+    # retrieval pipeline, and stashes results in query_cache. Subsequent
+    # identical queries get an O(1) lookup (subject to cache_ttl_hours).
+    "sleep_pre_compute_enabled": "true",
+    "sleep_pre_compute_top_n": "10",
 }
 
 
@@ -324,7 +330,7 @@ def verify_schema(conn):
         "goals", "tags", "tag_assignments", "workspaces", "workspace_files",
         "sessions", "meta_config", "contradictions", "audit_log",
         "feedback", "context_snapshots", "notification_queue", "scheduled_tasks",
-        "views", "embeddings_cache", "llm_providers",
+        "views", "query_cache", "llm_providers",
         # v1.5 tables
         "conversation_threads", "pinned_memories", "file_attachments",
         "skill_executions", "channel_configs", "channel_messages",

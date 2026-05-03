@@ -149,6 +149,16 @@ def run_sleep_cycle(conn, config=None):
     except Exception as e:
         results["ann_rebuild"] = {"error": str(e)}
 
+    # Phase 1c: Pre-compute query cache for frequent queries.
+    # Identifies the top-N most-frequent queries from recent context_snapshots
+    # and runs the full retrieval pipeline for each, stashing results in
+    # query_cache. Subsequent identical queries hit the cache for O(1)
+    # return (subject to cache_ttl_hours).
+    try:
+        results["pre_compute"] = _pre_compute_query_cache(conn, config)
+    except Exception as e:
+        results["pre_compute"] = {"error": str(e)}
+
     # Phase 2: Goal monitoring
     goal_results = _monitor_goals(conn, config)
     results["goals_checked"] = goal_results["checked"]
@@ -306,6 +316,105 @@ def _prune_graph(conn, config):
         conn.commit()
 
     return {"pruned": len(to_delete)}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Phase 1c — Query cache pre-computation
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _pre_compute_query_cache(conn, config):
+    """
+    Pick the top-N most-frequent queries from recent context_snapshots and
+    pre-compute their retrieval payloads into query_cache. Subsequent
+    identical queries hit the cache for O(1) return until TTL expires.
+
+    Selection: trigger_description starts with "retrieve_context: "; the
+    suffix is the original query text (truncated to 100 chars in context.py).
+    We strip back to the actual query, normalize, group, and rank by count
+    over the lookback window.
+    """
+    if config.get("sleep_pre_compute_enabled", "true") != "true":
+        return {"skipped": "sleep_pre_compute_enabled=false"}
+
+    top_n = int(config.get("sleep_pre_compute_top_n", "10"))
+    ttl_hours = float(config.get("cache_ttl_hours", "24"))
+    lookback_hours = int(config.get("sleep_pre_compute_lookback_hours", "168"))  # default 7d
+    cutoff = (datetime.utcnow() - timedelta(hours=lookback_hours)).isoformat()
+
+    # Group by trigger_description, count occurrences. Only consider
+    # snapshots whose description starts with the retrieve_context prefix.
+    rows = conn.execute(
+        """SELECT trigger_description, COUNT(*) AS freq
+           FROM context_snapshots
+           WHERE timestamp > ?
+             AND trigger_description LIKE 'retrieve_context: %'
+           GROUP BY trigger_description
+           ORDER BY freq DESC
+           LIMIT ?""",
+        (cutoff, top_n),
+    ).fetchall()
+
+    if not rows:
+        return {"selected": 0, "warmed": 0, "lookback_hours": lookback_hours}
+
+    # Drop stale cache rows beyond TTL up front so the cache doesn't grow forever
+    try:
+        ttl_cutoff = (datetime.utcnow() - timedelta(hours=ttl_hours)).isoformat()
+        conn.execute("DELETE FROM query_cache WHERE computed_at < ?", (ttl_cutoff,))
+        conn.commit()
+    except Exception:
+        pass
+
+    # Re-run retrieval for each frequent query and cache the result.
+    # We import retrieve_context lazily to avoid a circular import.
+    from swadb.context import retrieve_context
+
+    warmed = 0
+    failed = 0
+    for r in rows:
+        desc = r["trigger_description"] or ""
+        if not desc.startswith("retrieve_context: "):
+            continue
+        query_text = desc[len("retrieve_context: "):].strip()
+        if not query_text:
+            continue
+        try:
+            # skip_cache=True forces a fresh computation even if a stale row
+            # exists for this hash. The result is then written to the cache.
+            payload = retrieve_context(
+                conn, query_text,
+                filters={"skip_cache": True},
+                agent_id="default",
+            )
+            # Strip pinned (always merged live in retrieve_context) before
+            # caching so pin changes don't invalidate the cache.
+            cache_payload = {k: v for k, v in payload.items() if k != "pinned"}
+            cache_payload["from_cache"] = False  # placeholder; reset on read
+
+            # Collect memory IDs across all tiers for invalidation lookup
+            memory_ids = []
+            for tier in ("short_term", "midterm", "long_term"):
+                for m in cache_payload.get("memories", {}).get(tier, []) or []:
+                    if m.get("id"):
+                        memory_ids.append(m["id"])
+
+            from swadb import crud as _crud
+            cache_key = _crud.query_cache_hash(query_text, "default", {})
+            _crud.insert_query_cache_entry(
+                conn, cache_key, query_text, "default",
+                cache_payload, memory_ids,
+            )
+            warmed += 1
+        except Exception:
+            failed += 1
+
+    return {
+        "selected": len(rows),
+        "warmed": warmed,
+        "failed": failed,
+        "lookback_hours": lookback_hours,
+        "top_n": top_n,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────

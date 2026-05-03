@@ -91,6 +91,7 @@ def update_short_term_memory(conn, mid, **kwargs):
         f"UPDATE short_term_memory SET {set_clause} WHERE id = ?", values
     )
     conn.commit()
+    invalidate_query_cache_for_memory(conn, mid)
     return True
 
 
@@ -98,6 +99,7 @@ def delete_short_term_memory(conn, mid):
     """Delete a short-term memory entry."""
     conn.execute("DELETE FROM short_term_memory WHERE id = ?", (mid,))
     conn.commit()
+    invalidate_query_cache_for_memory(conn, mid)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -169,6 +171,7 @@ def update_midterm_memory(conn, mid, **kwargs):
         f"UPDATE midterm_memory SET {set_clause} WHERE id = ?", values
     )
     conn.commit()
+    invalidate_query_cache_for_memory(conn, mid)
     return True
 
 
@@ -176,6 +179,7 @@ def delete_midterm_memory(conn, mid):
     """Delete a midterm memory entry."""
     conn.execute("DELETE FROM midterm_memory WHERE id = ?", (mid,))
     conn.commit()
+    invalidate_query_cache_for_memory(conn, mid)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -247,6 +251,7 @@ def update_long_term_memory(conn, mid, **kwargs):
         f"UPDATE long_term_memory SET {set_clause} WHERE id = ?", values
     )
     conn.commit()
+    invalidate_query_cache_for_memory(conn, mid)
     return True
 
 
@@ -254,6 +259,7 @@ def delete_long_term_memory(conn, mid):
     """Delete a long-term memory entry."""
     conn.execute("DELETE FROM long_term_memory WHERE id = ?", (mid,))
     conn.commit()
+    invalidate_query_cache_for_memory(conn, mid)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1307,41 +1313,122 @@ def delete_view(conn, vid):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# EMBEDDINGS CACHE
+# QUERY CACHE
 # ═══════════════════════════════════════════════════════════════════
+# Replaces the orphaned embeddings_cache table. Stores full retrieval
+# payloads keyed by query hash so sleep-time pre-computation can warm
+# the cache for frequent queries (PRD Tier 1 #2 + #3).
 
-def create_embeddings_cache_entry(conn, node_a_id, node_a_table,
-                                  node_b_id, node_b_table, similarity_score):
-    """Store a precomputed similarity score."""
+import hashlib as _hashlib  # noqa: E402
+
+
+def query_cache_hash(query_text, agent_id="default", filters=None):
+    """
+    Stable hash of (normalized query, agent_id, filters) for cache lookup.
+
+    Whitespace and case are normalized so trivial variations hit the same
+    cache row. Filters are JSON-serialized with sorted keys for stability.
+    """
+    norm_q = " ".join((query_text or "").lower().split())
+    filter_repr = json.dumps(filters or {}, sort_keys=True, default=str)
+    raw = f"{norm_q}|{agent_id}|{filter_repr}"
+    return _hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def get_cached_query_result(conn, query_hash, ttl_hours=24):
+    """
+    Return cached result_json (parsed) or None if missing or stale.
+    Increments hit_count + last_hit_at when a row is returned.
+    """
+    row = conn.execute(
+        """SELECT id, result_json, computed_at, hit_count
+           FROM query_cache WHERE query_hash = ?
+           ORDER BY computed_at DESC LIMIT 1""",
+        (query_hash,),
+    ).fetchone()
+    if row is None:
+        return None
+    # TTL check
+    try:
+        computed = datetime.fromisoformat(row["computed_at"])
+        age_hours = (datetime.utcnow() - computed).total_seconds() / 3600
+        if age_hours > ttl_hours:
+            return None
+    except (ValueError, TypeError):
+        return None
+    # Bump hit counter
+    try:
+        conn.execute(
+            "UPDATE query_cache SET hit_count = hit_count + 1, last_hit_at = ? WHERE id = ?",
+            (_now(), row["id"]),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        return json.loads(row["result_json"])
+    except (ValueError, TypeError):
+        return None
+
+
+def insert_query_cache_entry(conn, query_hash, query_text, agent_id,
+                             result_payload, memory_ids, filter_key=None):
+    """
+    Insert (or replace) a cache entry. Removes any prior entry with the same
+    hash so we don't accumulate duplicates across sleep cycles.
+    """
+    conn.execute("DELETE FROM query_cache WHERE query_hash = ?", (query_hash,))
     eid = _new_id()
     conn.execute(
-        """INSERT INTO embeddings_cache
-           (id, node_a_id, node_a_table, node_b_id, node_b_table,
-            similarity_score, computed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (eid, node_a_id, node_a_table, node_b_id, node_b_table,
-         similarity_score, _now()),
+        """INSERT INTO query_cache
+           (id, query_hash, query_text, agent_id, filter_key,
+            result_json, memory_ids, computed_at, hit_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+        (eid, query_hash, query_text, agent_id, filter_key,
+         json.dumps(result_payload), json.dumps(list(memory_ids)), _now()),
     )
     conn.commit()
     return eid
 
 
-def get_cached_similarity(conn, node_a_id, node_a_table, node_b_id, node_b_table):
-    """Look up a cached similarity score between two nodes."""
-    row = conn.execute(
-        """SELECT similarity_score, computed_at FROM embeddings_cache
-           WHERE (node_a_id = ? AND node_a_table = ? AND node_b_id = ? AND node_b_table = ?)
-              OR (node_a_id = ? AND node_a_table = ? AND node_b_id = ? AND node_b_table = ?)""",
-        (node_a_id, node_a_table, node_b_id, node_b_table,
-         node_b_id, node_b_table, node_a_id, node_a_table),
-    ).fetchone()
-    return _row_to_dict(row)
+def invalidate_query_cache_for_memory(conn, memory_id):
+    """
+    Drop any cache rows whose result references `memory_id`. Called from
+    update/delete paths so the cache stays correct between sleep cycles.
+
+    Uses SQLite JSON1 (json_each) which is enabled by default in modern
+    builds. If json_each is unavailable, silently no-op (the TTL will
+    eventually flush the stale entry).
+    """
+    try:
+        conn.execute(
+            """DELETE FROM query_cache
+               WHERE id IN (
+                   SELECT q.id FROM query_cache q, json_each(q.memory_ids) j
+                   WHERE j.value = ?
+               )""",
+            (memory_id,),
+        )
+        conn.commit()
+    except Exception:
+        pass
 
 
-def clear_embeddings_cache(conn):
-    """Clear the entire embeddings cache."""
-    conn.execute("DELETE FROM embeddings_cache")
+def clear_query_cache(conn):
+    """Drop all cache entries."""
+    conn.execute("DELETE FROM query_cache")
     conn.commit()
+
+
+def query_cache_stats(conn):
+    """Return aggregate stats: row count, total hits, oldest computed_at."""
+    row = conn.execute(
+        """SELECT COUNT(*) AS rows, COALESCE(SUM(hit_count), 0) AS total_hits,
+                  MIN(computed_at) AS oldest, MAX(last_hit_at) AS most_recent_hit
+           FROM query_cache"""
+    ).fetchone()
+    return _row_to_dict(row) or {"rows": 0, "total_hits": 0,
+                                  "oldest": None, "most_recent_hit": None}
 
 
 # ═══════════════════════════════════════════════════════════════

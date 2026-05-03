@@ -735,6 +735,15 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     return _json_response(self, 200, data=result)
                 except Exception as e:
                     return _json_response(self, 500, error=str(e))
+            if path == "/api/maintenance/cache-clear":
+                try:
+                    before = conn.execute("SELECT COUNT(*) FROM query_cache").fetchone()[0]
+                    crud.clear_query_cache(conn)
+                    from swadb.context import reset_cache_metrics
+                    reset_cache_metrics()
+                    return _json_response(self, 200, data={"cleared": before})
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
             if path == "/api/maintenance/ann-rebuild":
                 try:
                     from swadb import ann
@@ -1534,7 +1543,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             ("workspaces", "workspaces"),
             ("workspace_files", "workspace_files"),
             ("views", "views"),
-            ("embeddings_cache", "embeddings_cache"),
+            ("query_cache", "query_cache"),
             ("scheduled_tasks", "scheduled_tasks"),
             ("conversation_threads", "conversation_threads"),
             ("pinned_memories", "pinned_memories"),
@@ -1561,6 +1570,15 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         stats["markdown_watch_enabled"] = crud.get_config_value(conn, "markdown_watch_enabled", "false")
         stats["agents"] = conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
         stats["unread_notifications"] = crud.count_unread_notifications(conn)
+        # Query cache metrics: process-local hit/miss + persistent row stats
+        try:
+            from swadb.context import cache_metrics
+            stats["query_cache"] = {
+                **cache_metrics(),
+                **crud.query_cache_stats(conn),
+            }
+        except Exception as e:
+            stats["query_cache"] = {"error": str(e)}
         _json_response(self, 200, data=stats)
 
     def _op_config_list(self, conn):
@@ -2123,6 +2141,40 @@ def _ensure_providers_schema(conn):
             conn.commit()
 
 
+def _ensure_v18_schema(conn):
+    """v1.8 migration: replace orphaned embeddings_cache with query_cache.
+
+    The old embeddings_cache table stored memory-to-memory similarity scores
+    intended to accelerate consolidation, but the vectorized clustering refactor
+    (commit e52b811) eliminated that hot path and the table was never populated.
+    The new query_cache stores full retrieval payloads keyed by query hash for
+    sleep-time pre-computation (PRD Tier 1 #2 + #3).
+    """
+    from swadb.schema import CREATE_QUERY_CACHE
+    existing = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+
+    if "query_cache" not in existing:
+        conn.execute(CREATE_QUERY_CACHE)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_query_cache_hash ON query_cache(query_hash);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_query_cache_computed ON query_cache(computed_at);")
+
+    if "embeddings_cache" in existing:
+        # Old table is unused (no rows ever written). Safe to drop.
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM embeddings_cache").fetchone()[0]
+        except Exception:
+            count = 0
+        conn.execute("DROP TABLE IF EXISTS embeddings_cache")
+        conn.commit()
+        if count > 0:
+            print(f"v1.8 schema migration: dropped embeddings_cache ({count} orphaned rows)")
+        else:
+            print("v1.8 schema migration: dropped empty embeddings_cache")
+    conn.commit()
+
+
 def _ensure_v15_schema(conn):
     """Create v1.5/v1.6 tables on existing databases that lack them.
     Uses the canonical DDL from schema.py to ensure column parity with CRUD layer."""
@@ -2189,6 +2241,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     _ensure_providers_schema(conn)
     # Ensure v1.5/v1.6 tables exist on pre-existing databases
     _ensure_v15_schema(conn)
+    _ensure_v18_schema(conn)
     # Backfill any new DEFAULT_CONFIG keys into existing databases
     from swadb.database import DEFAULT_CONFIG
     import uuid as _uuid_mod

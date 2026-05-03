@@ -29,6 +29,31 @@ from swadb.embeddings import (
 )
 
 
+# ── Cache hit/miss counters (process-local) ──
+# Surfaced via /api/stats. Reset on process restart.
+
+_query_cache_hits = 0
+_query_cache_misses = 0
+
+
+def cache_metrics():
+    """Return current process-local hit/miss/hit_rate snapshot."""
+    total = _query_cache_hits + _query_cache_misses
+    rate = _query_cache_hits / total if total > 0 else 0.0
+    return {
+        "hits": _query_cache_hits,
+        "misses": _query_cache_misses,
+        "hit_rate": round(rate, 4),
+    }
+
+
+def reset_cache_metrics():
+    """Reset the process-local hit/miss counters."""
+    global _query_cache_hits, _query_cache_misses
+    _query_cache_hits = 0
+    _query_cache_misses = 0
+
+
 # ── Cross-encoder reranker (lazy-loaded) ──
 
 _reranker_model = None
@@ -93,10 +118,36 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None,
     Returns:
         dict with keys: memories, entities, goals, skills, retrieval_strategies
     """
+    global _query_cache_hits, _query_cache_misses
+
     if filters is None:
         filters = {}
     if config is None:
         config = _load_retrieval_config(conn)
+
+    # ── Stage 0: query cache lookup ────────────────────────────────────
+    # Check the query_cache for a recent identical retrieval. Pinned memories
+    # are injected live (not cached) since pin/unpin events are frequent.
+    skip_cache = (filters or {}).get("skip_cache", False)
+    cache_ttl = float(config.get("cache_ttl_hours", 24))
+    cache_filters = {k: v for k, v in (filters or {}).items() if k != "skip_cache"}
+    cache_key = crud.query_cache_hash(query, agent_id or "default", cache_filters)
+    if not skip_cache:
+        try:
+            cached = crud.get_cached_query_result(conn, cache_key, ttl_hours=cache_ttl)
+        except Exception:
+            cached = None
+        if cached is not None:
+            _query_cache_hits += 1
+            # Live pin injection — the cache intentionally omits pins
+            try:
+                live_pinned = crud.get_pinned_memory_contents(conn, agent_id)
+            except Exception:
+                live_pinned = []
+            cached["pinned"] = live_pinned
+            cached["from_cache"] = True
+            return cached
+        _query_cache_misses += 1
 
     top_k = int(config.get("context_results_per_tier", 10))
     goal_threshold = float(config.get("goal_similarity_threshold", 0.7))

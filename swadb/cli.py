@@ -108,7 +108,7 @@ def cmd_stats(args):
         ("workspaces", "Workspaces"),
         ("workspace_files", "Workspace files"),
         ("views", "Saved views"),
-        ("embeddings_cache", "Cache entries"),
+        ("query_cache", "Query cache entries"),
     ]
     print("AgentDB Statistics")
     print("=" * 40)
@@ -252,6 +252,38 @@ def cmd_ann_rebuild(args):
         conn.close()
 
 
+def cmd_cache_stats(args):
+    """Show query cache stats."""
+    db_path = Path(args.db)
+    if not db_path.exists():
+        print(f"Database not found at {db_path}. Run 'swadb init' first.")
+        sys.exit(1)
+    conn = get_connection(db_path)
+    try:
+        stats = crud.query_cache_stats(conn)
+        print(f"Rows:           {stats.get('rows', 0)}")
+        print(f"Total hits:     {stats.get('total_hits', 0)}")
+        print(f"Oldest entry:   {stats.get('oldest') or '(empty)'}")
+        print(f"Most recent hit:{stats.get('most_recent_hit') or '(none)'}")
+    finally:
+        conn.close()
+
+
+def cmd_cache_clear(args):
+    """Drop all cached query results."""
+    db_path = Path(args.db)
+    if not db_path.exists():
+        print(f"Database not found at {db_path}. Run 'swadb init' first.")
+        sys.exit(1)
+    conn = get_connection(db_path)
+    try:
+        before = conn.execute("SELECT COUNT(*) FROM query_cache").fetchone()[0]
+        crud.clear_query_cache(conn)
+        print(f"Cleared {before} cache entries")
+    finally:
+        conn.close()
+
+
 def cmd_ann_status(args):
     """Show ANN availability and per-table counts."""
     db_path = Path(args.db)
@@ -358,6 +390,12 @@ def build_parser():
     ann_sub.add_parser("rebuild", help="Rebuild all ANN indexes from scratch")
     ann_sub.add_parser("status", help="Show ANN index availability and per-table counts")
 
+    # cache (sleep-time query result cache)
+    p_cache = subparsers.add_parser("cache", help="Query cache management")
+    cache_sub = p_cache.add_subparsers(dest="cache_command")
+    cache_sub.add_parser("stats", help="Show query cache row count, hits, oldest entry")
+    cache_sub.add_parser("clear", help="Drop all cached query results")
+
     return parser
 
 
@@ -423,6 +461,15 @@ def main():
             ann_dispatch[args.ann_command](args)
         else:
             print("Usage: swadb ann {rebuild|status}")
+    elif args.command == "cache":
+        cache_dispatch = {
+            "stats": cmd_cache_stats,
+            "clear": cmd_cache_clear,
+        }
+        if args.cache_command in cache_dispatch:
+            cache_dispatch[args.cache_command](args)
+        else:
+            print("Usage: swadb cache {stats|clear}")
     else:
         parser.print_help()
 

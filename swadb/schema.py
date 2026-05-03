@@ -8,7 +8,7 @@ Contains all tables organized into six functional groups:
 - Operational Support (sessions, conversation_threads, meta_config, llm_providers, contradictions, audit_log, feedback, context_snapshots, notification_queue, scheduled_tasks)
 - Autonomous Execution (autonomous_tasks, task_steps, task_actions, file_access_grants, shell_command_log)
 - External Channels (channel_configs, channel_messages)
-- Performance Optimization (views, embeddings_cache)
+- Performance Optimization (views, query_cache)
 
 Also contains trigger definitions for polymorphic referential integrity,
 cascade deletes, and FTS5 virtual tables for BM25 keyword search.
@@ -362,15 +362,18 @@ CREATE TABLE IF NOT EXISTS views (
 );
 """
 
-CREATE_EMBEDDINGS_CACHE = """
-CREATE TABLE IF NOT EXISTS embeddings_cache (
-    id              TEXT PRIMARY KEY,
-    node_a_id       TEXT NOT NULL,
-    node_a_table    TEXT NOT NULL,
-    node_b_id       TEXT NOT NULL,
-    node_b_table    TEXT NOT NULL,
-    similarity_score REAL NOT NULL,
-    computed_at     DATETIME NOT NULL DEFAULT (datetime('now'))
+CREATE_QUERY_CACHE = """
+CREATE TABLE IF NOT EXISTS query_cache (
+    id           TEXT PRIMARY KEY,
+    query_hash   TEXT NOT NULL,
+    query_text   TEXT NOT NULL,
+    agent_id     TEXT NOT NULL DEFAULT 'default',
+    filter_key   TEXT,
+    result_json  JSON NOT NULL,
+    memory_ids   JSON NOT NULL,
+    computed_at  DATETIME NOT NULL DEFAULT (datetime('now')),
+    hit_count    INTEGER NOT NULL DEFAULT 0,
+    last_hit_at  DATETIME
 );
 """
 
@@ -651,8 +654,8 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_feedback_processed ON feedback(processed);",
     "CREATE INDEX IF NOT EXISTS idx_context_snap_goal ON context_snapshots(goal_id);",
     "CREATE INDEX IF NOT EXISTS idx_context_snap_time ON context_snapshots(timestamp);",
-    "CREATE INDEX IF NOT EXISTS idx_emb_cache_a ON embeddings_cache(node_a_id, node_a_table);",
-    "CREATE INDEX IF NOT EXISTS idx_emb_cache_b ON embeddings_cache(node_b_id, node_b_table);",
+    "CREATE INDEX IF NOT EXISTS idx_query_cache_hash ON query_cache(query_hash);",
+    "CREATE INDEX IF NOT EXISTS idx_query_cache_computed ON query_cache(computed_at);",
     "CREATE INDEX IF NOT EXISTS idx_stm_agent ON short_term_memory(agent_id);",
     "CREATE INDEX IF NOT EXISTS idx_mtm_agent ON midterm_memory(agent_id);",
     "CREATE INDEX IF NOT EXISTS idx_ltm_agent ON long_term_memory(agent_id);",
@@ -1015,7 +1018,7 @@ ALL_TABLES = [
     CREATE_FILE_ACCESS_GRANTS,
     CREATE_SHELL_COMMAND_LOG,
     CREATE_VIEWS,
-    CREATE_EMBEDDINGS_CACHE,
+    CREATE_QUERY_CACHE,
 ]
 
 ALL_TRIGGERS = [
