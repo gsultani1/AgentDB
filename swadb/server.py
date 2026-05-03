@@ -614,6 +614,47 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 limit = int(qp.get("limit", [50])[0])
                 logs = crud.list_shell_command_log(conn, agent_id=agent_id, limit=limit)
                 return _json_response(self, 200, data=logs)
+            # ── Local system access reads (gated by file_access_grants) ──
+            if path == "/api/system/file/read":
+                from swadb.system_access import read_file, AccessDenied
+                try:
+                    result = read_file(
+                        conn,
+                        qp.get("agent_id", ["default"])[0],
+                        qp.get("path", [""])[0],
+                        binary=qp.get("binary", ["false"])[0] == "true",
+                    )
+                    return _json_response(self, 200, data=result)
+                except AccessDenied as e:
+                    return _json_response(self, 403, error=str(e))
+                except (FileNotFoundError, ValueError) as e:
+                    return _json_response(self, 400, error=str(e))
+            if path == "/api/system/file/list":
+                from swadb.system_access import list_dir, AccessDenied
+                try:
+                    result = list_dir(
+                        conn,
+                        qp.get("agent_id", ["default"])[0],
+                        qp.get("path", [""])[0],
+                    )
+                    return _json_response(self, 200, data=result)
+                except AccessDenied as e:
+                    return _json_response(self, 403, error=str(e))
+                except (FileNotFoundError, NotADirectoryError) as e:
+                    return _json_response(self, 400, error=str(e))
+            if path == "/api/system/file/stat":
+                from swadb.system_access import stat_path, AccessDenied
+                try:
+                    result = stat_path(
+                        conn,
+                        qp.get("agent_id", ["default"])[0],
+                        qp.get("path", [""])[0],
+                    )
+                    return _json_response(self, 200, data=result)
+                except AccessDenied as e:
+                    return _json_response(self, 403, error=str(e))
+                except FileNotFoundError as e:
+                    return _json_response(self, 404, error=str(e))
             if path == "/api/db-query/schema":
                 tables = conn.execute(
                     "SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL ORDER BY name"
@@ -1178,17 +1219,66 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return _json_response(self, 200, data={"step_id": step_id, "approved": approved})
 
             if path == "/api/file-access-grants":
-                agent_id = body.get("agent_id", "")
-                path_pattern = body.get("path_pattern", "")
-                if not agent_id or not path_pattern:
-                    return _json_response(self, 400, error="'agent_id' and 'path_pattern' are required")
+                # NB: the schema field is `directory_path`. Older callers may
+                # have sent `path_pattern`; accept both for back-compat.
+                directory_path = (
+                    body.get("directory_path") or body.get("path_pattern") or ""
+                ).strip()
+                agent_id = (body.get("agent_id") or "default").strip()
+                permission = body.get("permission", "read")
+                if not directory_path:
+                    return _json_response(self, 400,
+                        error="'directory_path' is required")
+                if permission not in ("read", "read_write"):
+                    return _json_response(self, 400,
+                        error="'permission' must be 'read' or 'read_write'")
+                if not os.path.isdir(directory_path):
+                    return _json_response(self, 400,
+                        error=f"directory_path is not a directory: {directory_path}")
                 gid = crud.create_file_access_grant(
-                    conn, agent_id, path_pattern,
-                    permission=body.get("permission", "read"),
-                    granted_by=body.get("granted_by", "operator"),
-                    expires_at=body.get("expires_at"),
+                    conn, directory_path=directory_path,
+                    agent_id=agent_id, permission=permission,
+                    notes=body.get("notes"),
                 )
                 return _json_response(self, 201, data={"id": gid})
+
+            # ── Local system access (gated by file_access_grants) ──
+            if path == "/api/system/file/write":
+                from swadb.system_access import write_file, AccessDenied
+                try:
+                    result = write_file(
+                        conn,
+                        body.get("agent_id") or "default",
+                        body.get("path", ""),
+                        body.get("content", ""),
+                        encoding=body.get("encoding", "utf-8"),
+                        append=bool(body.get("append", False)),
+                    )
+                    return _json_response(self, 200, data=result)
+                except AccessDenied as e:
+                    return _json_response(self, 403, error=str(e))
+                except (FileNotFoundError, ValueError) as e:
+                    return _json_response(self, 400, error=str(e))
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
+            if path == "/api/system/shell/execute":
+                from swadb.system_access import execute_shell, AccessDenied
+                try:
+                    result = execute_shell(
+                        conn,
+                        body.get("agent_id") or "default",
+                        body.get("command", ""),
+                        working_dir=body.get("working_dir"),
+                        timeout_seconds=body.get("timeout_seconds"),
+                        task_id=body.get("task_id"),
+                    )
+                    return _json_response(self, 200, data=result)
+                except AccessDenied as e:
+                    return _json_response(self, 403, error=str(e))
+                except ValueError as e:
+                    return _json_response(self, 400, error=str(e))
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
 
             if path == "/api/maintenance/git-sync":
                 from swadb.git_sync import sync_from_git

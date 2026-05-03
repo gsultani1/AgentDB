@@ -117,6 +117,13 @@ DEFAULT_CONFIG = {
     # identical queries get an O(1) lookup (subject to cache_ttl_hours).
     "sleep_pre_compute_enabled": "true",
     "sleep_pre_compute_top_n": "10",
+    # Local system access — file read/write/list and shell execution. All
+    # operations are gated by file_access_grants rows. Shell execution is
+    # off by default since it's a destructive feature; opt-in only.
+    "shell_access_enabled": "false",
+    "shell_timeout_seconds": "30",
+    "shell_max_timeout_seconds": "300",
+    "shell_denied_keywords": "",  # empty = use built-in defaults; JSON list to override
 }
 
 

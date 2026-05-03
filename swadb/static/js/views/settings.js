@@ -132,6 +132,12 @@
       html += '</div></div>';
     });
 
+    // Local System Access (loaded async after render)
+    html += '<div class="card" style="margin-bottom:16px"><h3>Local System Access</h3>';
+    html += '<p style="font-size:12px;color:var(--text2);margin-bottom:12px">Grant agents read or read/write access to specific directories. Optionally allow shell command execution.</p>';
+    html += '<div id="lsa-panel"><div style="color:var(--text2);font-size:13px">Loading…</div></div>';
+    html += '</div>';
+
     // Workspaces section (loaded async after render)
     html += '<div class="card" style="margin-bottom:16px"><h3>Workspaces</h3>';
     html += '<p style="font-size:12px;color:var(--text2);margin-bottom:12px">Register code or document directories to be scanned and indexed alongside agent memory.</p>';
@@ -200,10 +206,11 @@
       }
     });
 
-    // Load providers + workspaces + encryption status
+    // Load providers + workspaces + encryption status + local system access
     V.loadProviders();
     V.loadWorkspaces();
     V.loadEncryption();
+    V.loadLocalSystemAccess();
   };
 
   V.loadProviders = async function() {
@@ -307,6 +314,143 @@
       AgentDB.toast(action + ' completed', 'success');
     } else {
       AgentDB.toast(action + ' failed: ' + (r.error || 'Unknown'), 'error');
+    }
+  };
+
+  // ── Local System Access ─────────────────────────────────────────────
+  V.loadLocalSystemAccess = async function() {
+    var panel = document.getElementById('lsa-panel');
+    if (!panel) return;
+    var [grantsR, logR, cfgR] = await Promise.all([
+      AgentDB.api('GET', '/api/file-access-grants'),
+      AgentDB.api('GET', '/api/shell-log?limit=10'),
+      AgentDB.api('GET', '/api/config'),
+    ]);
+    var grants = (grantsR.status === 'ok' && grantsR.data) ? grantsR.data : [];
+    var logs = (logR.status === 'ok' && logR.data) ? logR.data : [];
+    var cfg = {};
+    if (cfgR.status === 'ok' && cfgR.data) {
+      cfgR.data.forEach(function(c) { cfg[c.key] = c.value; });
+    }
+    var shellEnabled = cfg.shell_access_enabled === 'true';
+    var shellTimeout = cfg.shell_timeout_seconds || '30';
+
+    var html = '';
+
+    // ── File access grants ──
+    html += '<div style="font-weight:600;margin-bottom:8px">File Access Grants</div>';
+    if (grants.length === 0) {
+      html += '<div style="color:var(--text2);font-size:13px;padding:8px 0;margin-bottom:12px">No grants configured. Agents have no filesystem access.</div>';
+    } else {
+      html += '<div style="display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:12px">';
+      grants.forEach(function(g) {
+        var permBadge = g.permission === 'read_write'
+          ? '<span style="background:#f59e0b;color:#000;padding:2px 8px;border-radius:8px;font-size:11px">read_write</span>'
+          : '<span style="background:var(--bg3);padding:2px 8px;border-radius:8px;font-size:11px">read</span>';
+        html += '<div style="background:var(--bg3);padding:8px 10px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;gap:12px">';
+        html += '<div style="flex:1;min-width:0">';
+        html += '<div style="font-family:var(--mono);font-size:12px;overflow:hidden;text-overflow:ellipsis">' + AgentDB.esc(g.directory_path) + ' ' + permBadge + '</div>';
+        html += '<div style="font-size:11px;color:var(--text2)">agent: ' + AgentDB.esc(g.agent_id) + ' • granted ' + AgentDB.esc(g.granted_at || '') + '</div>';
+        html += '</div>';
+        html += '<button class="btn btn-sm" style="color:var(--red);flex-shrink:0" data-del-grant="' + AgentDB.esc(g.id) + '">Revoke</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div id="add-grant-form" style="display:none;padding:10px;background:var(--bg3);border-radius:6px;margin-bottom:12px">';
+    html += '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">';
+    html += '<div><label style="font-size:11px;color:var(--text2)">Directory</label><input type="text" id="grant-path" placeholder="C:\\\\Users\\\\you\\\\workspace" style="width:100%;font-family:var(--mono);font-size:12px"></div>';
+    html += '<div><label style="font-size:11px;color:var(--text2)">Permission</label><select id="grant-perm" style="width:100%"><option value="read">read</option><option value="read_write">read_write</option></select></div>';
+    html += '<div><label style="font-size:11px;color:var(--text2)">Agent</label><input type="text" id="grant-agent" value="default" style="width:100%"></div>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:6px"><button class="btn btn-primary btn-sm" id="save-grant-btn">Add Grant</button><button class="btn btn-sm" id="cancel-grant-btn">Cancel</button></div>';
+    html += '</div>';
+    html += '<button class="btn btn-sm" id="show-add-grant-btn">+ Add Grant</button>';
+
+    // ── Shell access ──
+    html += '<div style="border-top:1px solid var(--bg3);margin-top:16px;padding-top:12px">';
+    html += '<div style="font-weight:600;margin-bottom:8px">Shell Execution</div>';
+    var shellBadge = shellEnabled
+      ? '<span style="background:#f59e0b;color:#000;padding:2px 8px;border-radius:8px;font-size:11px">enabled</span>'
+      : '<span style="background:var(--text2);color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">disabled</span>';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
+    html += '<label class="setting-toggle"><input type="checkbox" id="cfg-shell_access_enabled"' + (shellEnabled ? ' checked' : '') +
+            ' onchange="AgentDB.views.settings.saveConfig(\'shell_access_enabled\')"><span class="slider"></span></label>';
+    html += '<span style="font-size:13px">Allow shell commands</span>' + shellBadge;
+    html += '</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
+    html += '<div><label style="font-size:11px;color:var(--text2)">Default timeout (s)</label>';
+    html += '<input type="number" id="cfg-shell_timeout_seconds" value="' + AgentDB.esc(shellTimeout) + '" min="1" max="600" style="width:100%" onchange="AgentDB.views.settings.saveConfig(\'shell_timeout_seconds\')"></div>';
+    html += '<div><label style="font-size:11px;color:var(--text2)">Working dir must be inside a grant</label><input type="text" value="enforced" disabled style="width:100%;color:var(--text2)"></div>';
+    html += '</div>';
+
+    // Recent shell commands
+    html += '<div style="font-size:13px;font-weight:600;margin-top:8px;margin-bottom:6px">Recent Commands</div>';
+    if (logs.length === 0) {
+      html += '<div style="color:var(--text2);font-size:12px">No shell commands have been executed yet.</div>';
+    } else {
+      html += '<div style="display:grid;grid-template-columns:1fr;gap:4px;max-height:240px;overflow-y:auto">';
+      logs.forEach(function(l) {
+        var ec = l.exit_code;
+        var ecBadge;
+        if (ec === 0) ecBadge = '<span style="background:#22c55e;color:#fff;padding:1px 6px;border-radius:6px;font-size:10px">0</span>';
+        else if (ec === null || ec === undefined) ecBadge = '<span style="background:var(--text2);color:#fff;padding:1px 6px;border-radius:6px;font-size:10px">running</span>';
+        else ecBadge = '<span style="background:var(--red);color:#fff;padding:1px 6px;border-radius:6px;font-size:10px">' + ec + '</span>';
+        var dur = l.duration_ms != null ? (l.duration_ms + 'ms') : '—';
+        html += '<div style="background:var(--bg3);padding:6px 10px;border-radius:4px;font-size:11px;font-family:var(--mono);display:flex;align-items:center;gap:8px">';
+        html += '<div style="flex-shrink:0">' + ecBadge + '</div>';
+        html += '<div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + AgentDB.esc(l.command || '') + '</div>';
+        html += '<div style="color:var(--text2);flex-shrink:0">' + dur + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>'; // /shell section
+
+    panel.innerHTML = html;
+
+    // Wire grant form
+    var showBtn = document.getElementById('show-add-grant-btn');
+    if (showBtn) showBtn.onclick = function() {
+      document.getElementById('add-grant-form').style.display = 'block';
+    };
+    var cancelBtn = document.getElementById('cancel-grant-btn');
+    if (cancelBtn) cancelBtn.onclick = function() {
+      document.getElementById('add-grant-form').style.display = 'none';
+    };
+    var saveBtn = document.getElementById('save-grant-btn');
+    if (saveBtn) saveBtn.onclick = V.createGrant;
+    panel.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-del-grant]');
+      if (btn) V.deleteGrant(btn.dataset.delGrant);
+    });
+  };
+
+  V.createGrant = async function() {
+    var p = document.getElementById('grant-path').value.trim();
+    var perm = document.getElementById('grant-perm').value;
+    var agent = document.getElementById('grant-agent').value.trim() || 'default';
+    if (!p) { AgentDB.toast('Directory path is required', 'error'); return; }
+    var r = await AgentDB.api('POST', '/api/file-access-grants', {
+      directory_path: p, permission: perm, agent_id: agent
+    });
+    if (r.status === 'ok') {
+      AgentDB.toast('Grant added', 'success');
+      V.loadLocalSystemAccess();
+    } else {
+      AgentDB.toast('Failed: ' + (r.error || 'unknown'), 'error');
+    }
+  };
+
+  V.deleteGrant = async function(id) {
+    if (!confirm('Revoke this access grant?')) return;
+    var r = await AgentDB.api('DELETE', '/api/file-access-grants/' + id);
+    if (r.status === 'ok') {
+      AgentDB.toast('Grant revoked', 'success');
+      V.loadLocalSystemAccess();
+    } else {
+      AgentDB.toast('Revoke failed: ' + (r.error || 'unknown'), 'error');
     }
   };
 
