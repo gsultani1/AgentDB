@@ -126,10 +126,11 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None,
     for tier_key, (table, label) in tier_map.items():
         if tier_key not in tiers_to_search:
             continue
-        candidates = _get_memory_candidates(conn, table, filters,
-                                            agent_id=agent_id,
-                                            include_agents=include_agents)
-        results = semantic_search(query_embedding, candidates, top_k=top_k * 2)
+        results = _semantic_search_smart(
+            conn, table, query_embedding, filters,
+            agent_id=agent_id, include_agents=include_agents,
+            top_k=top_k * 2,
+        )
         for mid, score in results:
             row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (mid,)).fetchone()
             if row:
@@ -355,6 +356,54 @@ def _build_agent_set(agent_id, include_agents):
     if include_agents:
         ids.update(include_agents)
     return list(ids)
+
+
+def _semantic_search_smart(conn, table, query_embedding, filters,
+                           agent_id=None, include_agents=None, top_k=20):
+    """
+    ANN-accelerated semantic search with brute-force fallback.
+
+    Uses the HNSW index when (a) hnswlib is installed, (b) the index has been
+    built for this table, and (c) the filter set is simple (no confidence_min
+    or time_range — those still go through SQL pre-filtering + brute force to
+    avoid recall loss). Returns list of (id, similarity_score) tuples.
+    """
+    has_complex_filter = bool(filters.get("confidence_min")) or bool(filters.get("time_range"))
+
+    # Brute-force path: pre-filter via SQL, then rank
+    def _brute_force():
+        candidates = _get_memory_candidates(conn, table, filters,
+                                            agent_id=agent_id,
+                                            include_agents=include_agents)
+        return semantic_search(query_embedding, candidates, top_k=top_k)
+
+    if has_complex_filter:
+        return _brute_force()
+
+    try:
+        from swadb import ann
+    except ImportError:
+        return _brute_force()
+
+    if not ann.is_available() or ann._GLOBAL_INDEX_SET is None:
+        return _brute_force()
+
+    idx_set = ann._GLOBAL_INDEX_SET
+    idx = idx_set.for_table(table)
+    if idx is None or idx.index is None:
+        return _brute_force()
+
+    agent_set = _build_agent_set(agent_id, include_agents)
+    results = idx_set.search(
+        conn, table, query_embedding, top_k=top_k,
+        agent_filter=agent_set,
+        status_filter="active",
+    )
+    # Defensive fallback: if filtering collapsed ANN results below top_k/2,
+    # the index may be stale or filters too strict — re-run brute force.
+    if len(results) < max(1, top_k // 2):
+        return _brute_force()
+    return results
 
 
 def _get_memory_candidates(conn, table, filters, agent_id=None, include_agents=None):

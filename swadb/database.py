@@ -106,6 +106,11 @@ DEFAULT_CONFIG = {
     "last_git_sync_at": "",
     "custom_alert_rules": "[]",
     "theme_preference": "auto",
+    # ANN (approximate-nearest-neighbor) index — sidecar HNSW indexes per
+    # embedding-bearing table, rebuilt after each consolidation cycle.
+    # When disabled or hnswlib is missing, retrieval falls back to brute-force.
+    "ann_index_enabled": "true",
+    "ann_rebuild_strategy": "after_consolidation",
 }
 
 

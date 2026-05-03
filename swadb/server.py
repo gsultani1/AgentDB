@@ -408,6 +408,21 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             # ── Operator API ──
             if path == "/api/stats":
                 return self._op_stats(conn)
+            if path == "/api/maintenance/ann-status":
+                from swadb import ann
+                available = ann.is_available()
+                data = {"available": available, "tables": []}
+                if available and ann._GLOBAL_INDEX_SET is not None:
+                    idx_set = ann._GLOBAL_INDEX_SET
+                    data["sidecar_dir"] = str(idx_set.dir)
+                    for t in ann.ANN_TABLES:
+                        idx = idx_set.for_table(t)
+                        data["tables"].append({
+                            "table": t,
+                            "count": idx.count() if idx else 0,
+                            "last_built_at": idx.last_built_at if idx else None,
+                        })
+                return _json_response(self, 200, data=data)
             if path == "/api/config":
                 return self._op_config_list(conn)
             if path == "/api/entities":
@@ -717,6 +732,17 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 try:
                     from swadb.scheduler import run_integrity_check
                     result = run_integrity_check(conn)
+                    return _json_response(self, 200, data=result)
+                except Exception as e:
+                    return _json_response(self, 500, error=str(e))
+            if path == "/api/maintenance/ann-rebuild":
+                try:
+                    from swadb import ann
+                    if not ann.is_available():
+                        return _json_response(self, 400,
+                            error="hnswlib is not installed; run: pip install hnswlib")
+                    idx_set = ann.get_index_set(_db_path)
+                    result = idx_set.rebuild_all(conn)
                     return _json_response(self, 200, data=result)
                 except Exception as e:
                     return _json_response(self, 500, error=str(e))
@@ -2187,6 +2213,31 @@ def run_server(db_path, host="127.0.0.1", port=8420):
         except Exception as e:
             print(f"Warning: Embedding warm-up failed: {e}")
     _warmup_threading.Thread(target=_warmup_embeddings, daemon=True).start()
+
+    # Build/load ANN indexes in background. Loading is fast (mmap of HNSW
+    # files); a full rebuild from scratch on first run can take a few seconds
+    # for large databases, so we do it off the request path.
+    def _warmup_ann():
+        try:
+            from swadb import ann
+            from swadb.crud import get_config_value
+            ann_conn = get_connection(db_path)
+            try:
+                if get_config_value(ann_conn, "ann_index_enabled", "true") != "true":
+                    print("ANN index disabled via config")
+                    return
+                if not ann.is_available():
+                    print("ANN: hnswlib not installed; semantic search uses brute-force")
+                    return
+                idx_set = ann.get_index_set(db_path)
+                summary = idx_set.load_or_build(ann_conn)
+                print(f"ANN indexes ready: loaded={summary.get('loaded', 0)} "
+                      f"built={summary.get('built', 0)}")
+            finally:
+                ann_conn.close()
+        except Exception as e:
+            print(f"Warning: ANN warm-up failed: {e}")
+    _warmup_threading.Thread(target=_warmup_ann, daemon=True).start()
 
     # Start markdown file watcher if enabled
     try:

@@ -135,6 +135,20 @@ def run_sleep_cycle(conn, config=None):
     consolidation_result = run_consolidation_cycle(conn)
     results["consolidation"] = consolidation_result
 
+    # Phase 1b: Rebuild ANN indexes from scratch. Consolidation moves rows
+    # between tier tables, decays embeddings, and prunes; the prior index is
+    # stale across all six embedding-bearing tables. Per PRD this is the
+    # default rebuild trigger ("after_consolidation").
+    try:
+        from swadb import crud as _crud
+        if _crud.get_config_value(conn, "ann_index_enabled", "true") == "true" \
+                and _crud.get_config_value(conn, "ann_rebuild_strategy", "after_consolidation") == "after_consolidation":
+            from swadb import ann
+            if ann.is_available() and ann._GLOBAL_INDEX_SET is not None:
+                results["ann_rebuild"] = ann._GLOBAL_INDEX_SET.rebuild_all(conn)
+    except Exception as e:
+        results["ann_rebuild"] = {"error": str(e)}
+
     # Phase 2: Goal monitoring
     goal_results = _monitor_goals(conn, config)
     results["goals_checked"] = goal_results["checked"]

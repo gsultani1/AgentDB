@@ -1,3 +1,8 @@
 sentence-transformers==3.3.1
 numpy==2.2.3
 mcp>=1.0.0
+
+# Optional: approximate nearest neighbor (ANN) acceleration for semantic search.
+# Without it, swadb falls back to brute-force cosine similarity (correct, just
+# O(n) per query). Recommended once memory count exceeds ~10k.
+hnswlib>=0.8.0; python_version >= "3.9"

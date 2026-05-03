@@ -230,6 +230,52 @@ def cmd_mcp(args):
     run_mcp_server(str(db_path), transport=args.transport)
 
 
+def cmd_ann_rebuild(args):
+    """Rebuild all ANN indexes from current DB state."""
+    db_path = Path(args.db)
+    if not db_path.exists():
+        print(f"Database not found at {db_path}. Run 'swadb init' first.")
+        sys.exit(1)
+    from swadb import ann
+    if not ann.is_available():
+        print("hnswlib is not installed; install with: pip install hnswlib")
+        sys.exit(1)
+    conn = get_connection(db_path)
+    try:
+        idx_set = ann.get_index_set(str(db_path))
+        result = idx_set.rebuild_all(conn)
+        print(f"Rebuilt {result['rebuilt']} indexes:")
+        for table, count in result.get("per_table", {}).items():
+            print(f"  {table}: {count} embeddings")
+        print(f"Sidecar dir: {idx_set.dir}")
+    finally:
+        conn.close()
+
+
+def cmd_ann_status(args):
+    """Show ANN availability and per-table counts."""
+    db_path = Path(args.db)
+    from swadb import ann
+    print(f"hnswlib installed: {ann.is_available()}")
+    if not ann.is_available():
+        return
+    if not db_path.exists():
+        print(f"Database not found at {db_path}")
+        return
+    conn = get_connection(db_path)
+    try:
+        idx_set = ann.get_index_set(str(db_path))
+        idx_set.load_or_build(conn)
+        print(f"Sidecar dir: {idx_set.dir}")
+        for table in ann.ANN_TABLES:
+            idx = idx_set.for_table(table)
+            count = idx.count() if idx else 0
+            built = idx.last_built_at if idx else "—"
+            print(f"  {table:20s} count={count:6d}  last_built_at={built}")
+    finally:
+        conn.close()
+
+
 def build_parser():
     """Build the argument parser."""
     parser = argparse.ArgumentParser(
@@ -306,6 +352,12 @@ def build_parser():
                         help="MCP transport type")
     p_mcp.add_argument("--port", type=int, default=8421, help="Port for SSE transport")
 
+    # ann (approximate-nearest-neighbor index)
+    p_ann = subparsers.add_parser("ann", help="ANN index management")
+    ann_sub = p_ann.add_subparsers(dest="ann_command")
+    ann_sub.add_parser("rebuild", help="Rebuild all ANN indexes from scratch")
+    ann_sub.add_parser("status", help="Show ANN index availability and per-table counts")
+
     return parser
 
 
@@ -362,6 +414,15 @@ def main():
             sess_dispatch[args.session_command](args)
         else:
             print("Usage: swadb session {start|end}")
+    elif args.command == "ann":
+        ann_dispatch = {
+            "rebuild": cmd_ann_rebuild,
+            "status": cmd_ann_status,
+        }
+        if args.ann_command in ann_dispatch:
+            ann_dispatch[args.ann_command](args)
+        else:
+            print("Usage: swadb ann {rebuild|status}")
     else:
         parser.print_help()
 
