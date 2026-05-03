@@ -504,6 +504,9 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             m = _match("/api/entities/{id}/graph", path)
             if m:
                 return self._op_entity_graph(conn, m["id"], qp)
+            m = _match("/api/entities/{id}/detail", path)
+            if m:
+                return self._op_entity_detail(conn, m["id"], qp)
             m = _match("/api/skills/{id}/implementations", path)
             if m:
                 return self._op_skill_implementations(conn, m["id"])
@@ -1969,6 +1972,115 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                         })
                         queue.append((other_id, other_table, d + 1))
         _json_response(self, 200, data={"nodes": nodes, "edges": edges})
+
+    def _op_entity_detail(self, conn, eid, qp):
+        """Bundle everything the entity-detail drawer needs in one round-trip:
+        the entity row, memories that reference it (via entity_ids JSON),
+        outgoing relations, and co-occurring entities (other entities that
+        appear in the same memory's entity_ids list, ranked by frequency).
+        Skill executions referencing this entity are not yet schema-tracked
+        (skill_executions has no entity FK); returned as []."""
+        entity = crud.get_entity(conn, eid)
+        if not entity:
+            return _json_response(self, 404, error="Entity not found")
+        entity.pop("embedding", None)
+
+        mem_limit = int(qp.get("memory_limit", [50])[0])
+
+        # Memories referencing this entity via entity_ids JSON, across mid+long
+        # tiers (short_term_memory has no entity_ids column). Uses json_each.
+        memories = []
+        try:
+            for tier_label, table, ts_col in (
+                ("midterm", "midterm_memory", "created_at"),
+                ("long_term", "long_term_memory", "created_at"),
+            ):
+                rows = conn.execute(
+                    f"SELECT m.*, ? AS tier FROM {table} m, json_each(m.entity_ids) j "
+                    f"WHERE j.value = ? ORDER BY m.{ts_col} DESC LIMIT ?",
+                    (tier_label, eid, mem_limit),
+                ).fetchall()
+                for row in rows:
+                    d = dict(row)
+                    d.pop("embedding", None)
+                    memories.append(d)
+        except Exception:
+            # json_each may be unavailable on older SQLite; degrade gracefully
+            pass
+        # Re-sort merged tiers by created_at desc, cap at mem_limit
+        memories.sort(key=lambda m: m.get("created_at") or m.get("timestamp") or "",
+                      reverse=True)
+        memories = memories[:mem_limit]
+
+        # Relations whose source or target is this entity
+        try:
+            relations = crud.list_relations_for_node(conn, eid, "entities") or []
+        except Exception:
+            relations = []
+        # Annotate each relation with the "other" node's display name
+        relation_view = []
+        for rel in relations:
+            other_id = rel["target_id"] if rel["source_id"] == eid else rel["source_id"]
+            other_table = rel["target_table"] if rel["source_id"] == eid else rel["source_table"]
+            other_name = None
+            try:
+                row = conn.execute(
+                    f"SELECT * FROM {other_table} WHERE id = ?", (other_id,)
+                ).fetchone()
+                if row:
+                    other_name = (row["canonical_name"] if "canonical_name" in row.keys() else None) \
+                                 or (row["content"][:60] if "content" in row.keys() and row["content"] else None) \
+                                 or (row["description"][:60] if "description" in row.keys() and row["description"] else None) \
+                                 or other_id[:8]
+            except Exception:
+                other_name = other_id[:8]
+            relation_view.append({
+                **dict(rel),
+                "other_id": other_id,
+                "other_table": other_table,
+                "other_name": other_name,
+            })
+
+        # Co-occurring entities — other entities that appear in the same
+        # memory's entity_ids list, ranked by co-occurrence count.
+        co_occurring = []
+        try:
+            rows = conn.execute(
+                """
+                WITH my_memories AS (
+                    SELECT m.id AS mid FROM midterm_memory m, json_each(m.entity_ids) j
+                    WHERE j.value = ?
+                    UNION
+                    SELECT m.id AS mid FROM long_term_memory m, json_each(m.entity_ids) j
+                    WHERE j.value = ?
+                ),
+                co_ids AS (
+                    SELECT j.value AS eid FROM midterm_memory m, json_each(m.entity_ids) j
+                    WHERE m.id IN (SELECT mid FROM my_memories) AND j.value != ?
+                    UNION ALL
+                    SELECT j.value AS eid FROM long_term_memory m, json_each(m.entity_ids) j
+                    WHERE m.id IN (SELECT mid FROM my_memories) AND j.value != ?
+                )
+                SELECT eid, COUNT(*) AS freq FROM co_ids
+                GROUP BY eid ORDER BY freq DESC LIMIT 20
+                """,
+                (eid, eid, eid, eid),
+            ).fetchall()
+            for r in rows:
+                e = crud.get_entity(conn, r["eid"])
+                if e:
+                    e.pop("embedding", None)
+                    co_occurring.append({"entity": e, "co_occurrence_count": r["freq"]})
+        except Exception:
+            co_occurring = []
+
+        return _json_response(self, 200, data={
+            "entity": entity,
+            "memories": memories,
+            "relations": relation_view,
+            "co_occurring": co_occurring,
+            "skill_executions": [],  # not tracked in current schema
+        })
 
     def _op_skills_list(self, conn, qp):
         exec_type = qp.get("execution_type", [None])[0]

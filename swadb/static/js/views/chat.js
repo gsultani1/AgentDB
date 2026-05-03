@@ -139,6 +139,17 @@
       document.getElementById('chat-raw-toggle').addEventListener('click', function () {
         V.toggleRawMode();
       });
+      // Delegated click handler for entity cards in the observability sidebar.
+      // Attached once at view-load; survives every renderContext rewrite.
+      var ctxRoot = document.getElementById('chat-context-content');
+      if (ctxRoot) {
+        ctxRoot.addEventListener('click', function (ev) {
+          var card = ev.target.closest('[data-entity-id]');
+          if (card && card.dataset.entityId) {
+            AgentDB.openEntityDetail(card.dataset.entityId);
+          }
+        });
+      }
 
       var input = document.getElementById('chat-input');
       input.addEventListener('keydown', function (e) {
@@ -574,7 +585,11 @@
       html += '<div class="obs-section-title">Matched Entities <span class="obs-count">' + entities.length + '</span></div>';
       for (var e = 0; e < entities.length; e++) {
         var ent = entities[e];
-        html += '<div class="obs-entity-card">';
+        // Cards are clickable: open the entity detail drawer (handled by
+        // delegated listener below).
+        html += '<div class="obs-entity-card" data-entity-id="' +
+                AgentDB.esc(ent.id || '') +
+                '" style="cursor:pointer" title="Click to open detail">';
         if (ent.entity_type) {
           html += '<span class="obs-entity-type">' + AgentDB.esc(ent.entity_type) + '</span>';
         }

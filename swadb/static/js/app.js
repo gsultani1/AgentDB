@@ -577,9 +577,10 @@ AgentDB._installKeyboardShortcuts = function () {
   }
 
   document.addEventListener('keydown', function (e) {
-    // Esc always works (closes help overlay)
+    // Esc always works (closes help overlay or entity drawer)
     if (e.key === 'Escape') {
       AgentDB._closeShortcutHelp();
+      AgentDB._closeEntityDetail();
       clearGPrefix();
       return;
     }
@@ -669,4 +670,273 @@ AgentDB._openShortcutHelp = function () {
 AgentDB._closeShortcutHelp = function () {
   var o = document.getElementById('shortcut-help-overlay');
   if (o) o.remove();
+};
+
+/* ============================================================
+   Entity detail drawer
+   Right-side slide-in drawer with tabs:
+     Overview / Memories / Relations / Co-occurring
+   Reusable from any view via AgentDB.openEntityDetail(entityId).
+   ============================================================ */
+AgentDB.openEntityDetail = async function (entityId) {
+  if (!entityId) return;
+  AgentDB._closeEntityDetail();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'entity-detail-overlay';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9990;' +
+    'display:flex;justify-content:flex-end';
+  overlay.innerHTML =
+    '<div id="entity-detail-drawer" style="width:min(560px,100vw);height:100%;' +
+    'background:var(--bg2);box-shadow:-8px 0 32px var(--shadow);overflow-y:auto;' +
+    'padding:20px;animation:entity-slide-in 0.18s ease-out">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+    '<div style="display:flex;align-items:center;gap:10px">' +
+    '<h3 style="margin:0">Entity</h3>' +
+    '<span style="color:var(--text2);font-size:12px;font-family:var(--mono)">' +
+    AgentDB.esc(entityId.slice(0, 8)) + '</span></div>' +
+    '<button class="btn btn-sm" id="entity-detail-close">Close</button>' +
+    '</div>' +
+    '<div id="entity-detail-body"><div class="spinner"></div></div>' +
+    '</div>';
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) AgentDB._closeEntityDetail();
+  });
+  document.body.appendChild(overlay);
+  document.getElementById('entity-detail-close').addEventListener(
+    'click', AgentDB._closeEntityDetail);
+
+  // Inject keyframes once
+  if (!document.getElementById('entity-detail-anim')) {
+    var st = document.createElement('style');
+    st.id = 'entity-detail-anim';
+    st.textContent =
+      '@keyframes entity-slide-in {' +
+      ' from { transform: translateX(40px); opacity: 0; }' +
+      ' to { transform: translateX(0); opacity: 1; } }';
+    document.head.appendChild(st);
+  }
+
+  var r = await AgentDB.api('GET', '/api/entities/' + encodeURIComponent(entityId) + '/detail');
+  var body = document.getElementById('entity-detail-body');
+  if (!body) return; // closed before fetch resolved
+  if (r.status !== 'ok' || !r.data) {
+    body.innerHTML = '<div style="color:var(--red);font-size:13px">' +
+      AgentDB.esc(r.error || 'Failed to load entity') + '</div>';
+    return;
+  }
+  AgentDB._renderEntityDetail(body, r.data);
+};
+
+AgentDB._closeEntityDetail = function () {
+  var o = document.getElementById('entity-detail-overlay');
+  if (o) o.remove();
+};
+
+AgentDB._renderEntityDetail = function (body, data) {
+  var ent = data.entity || {};
+  var memories = data.memories || [];
+  var relations = data.relations || [];
+  var coOccurring = data.co_occurring || [];
+
+  // Aliases come from JSON column; coerce to array
+  var aliases = ent.aliases;
+  if (typeof aliases === 'string') {
+    try { aliases = JSON.parse(aliases); } catch (_) { aliases = []; }
+  }
+  if (!Array.isArray(aliases)) aliases = [];
+
+  function tierBadge(tier) {
+    var color = tier === 'long_term' ? '#10b981'
+              : tier === 'midterm' ? '#8b5cf6' : '#3b82f6';
+    return '<span style="background:' + color + ';color:#fff;padding:1px 6px;' +
+           'border-radius:6px;font-size:10px;font-family:var(--mono)">' +
+           AgentDB.esc(tier) + '</span>';
+  }
+
+  var html = '';
+
+  // ── Overview ──
+  html += '<div style="background:var(--bg3);padding:12px;border-radius:6px;margin-bottom:12px">';
+  html += '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">';
+  html += '<input type="text" id="ent-name" value="' + AgentDB.esc(ent.canonical_name || '') +
+          '" style="font-size:18px;font-weight:600;border:none;background:transparent;flex:1;min-width:200px;padding:4px 6px;border-radius:4px" title="Click to edit canonical name">';
+  if (ent.entity_type) {
+    html += '<span style="background:var(--bg2);padding:2px 8px;border-radius:8px;font-size:11px;font-family:var(--mono)">' +
+            AgentDB.esc(ent.entity_type) + '</span>';
+  }
+  html += '</div>';
+
+  html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;margin-top:8px">';
+  if (ent.first_seen) {
+    html += '<div style="color:var(--text2)">First seen:</div><div>' + AgentDB.esc(ent.first_seen) + '</div>';
+  }
+  if (ent.last_seen) {
+    html += '<div style="color:var(--text2)">Last seen:</div><div>' + AgentDB.esc(ent.last_seen) + '</div>';
+  }
+  if (ent.created_at) {
+    html += '<div style="color:var(--text2)">Created:</div><div>' + AgentDB.esc(ent.created_at) + '</div>';
+  }
+  html += '</div>';
+
+  // Aliases (editable)
+  html += '<div style="margin-top:10px">';
+  html += '<div style="font-size:12px;color:var(--text2);margin-bottom:4px">Aliases (comma-separated)</div>';
+  html += '<input type="text" id="ent-aliases" value="' + AgentDB.esc(aliases.join(', ')) +
+          '" style="width:100%;font-size:13px" placeholder="No aliases">';
+  html += '</div>';
+
+  html += '<div style="display:flex;gap:6px;margin-top:10px">';
+  html += '<button class="btn btn-sm btn-primary" id="ent-save">Save changes</button>';
+  html += '<button class="btn btn-sm" style="color:var(--red)" id="ent-delete">Delete</button>';
+  html += '</div>';
+  html += '</div>';
+
+  // ── Tabs ──
+  html += '<div class="tabs" id="ent-tabs" style="margin-bottom:12px">';
+  html += '<button class="tab active" data-ent-tab="memories">Memories <span style="opacity:0.6">' + memories.length + '</span></button>';
+  html += '<button class="tab" data-ent-tab="relations">Relations <span style="opacity:0.6">' + relations.length + '</span></button>';
+  html += '<button class="tab" data-ent-tab="co">Co-occurring <span style="opacity:0.6">' + coOccurring.length + '</span></button>';
+  html += '</div>';
+
+  // Memories panel
+  html += '<div data-ent-panel="memories">';
+  html += '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
+  html += '<button class="btn btn-sm tier-filter active" data-tier-filter="all">All</button>';
+  html += '<button class="btn btn-sm tier-filter" data-tier-filter="midterm">Midterm</button>';
+  html += '<button class="btn btn-sm tier-filter" data-tier-filter="long_term">Long-term</button>';
+  html += '</div>';
+  if (!memories.length) {
+    html += '<div style="color:var(--text2);font-size:12px;padding:8px 0">No memories reference this entity yet (short-term memories don\'t carry entity links).</div>';
+  } else {
+    html += '<div id="ent-memories-list">';
+    memories.forEach(function (m) {
+      var content = m.content || '';
+      if (content.length > 240) content = content.substring(0, 240) + '…';
+      html += '<div class="ent-memory-row" data-tier="' + AgentDB.esc(m.tier) + '" style="background:var(--bg3);padding:8px 10px;border-radius:6px;margin-bottom:6px">';
+      html += '<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px">';
+      html += tierBadge(m.tier);
+      html += '<span style="font-size:11px;color:var(--text2)">' +
+              AgentDB.esc(m.created_at || m.timestamp || '') + '</span>';
+      html += '</div>';
+      html += '<div style="font-size:12px;line-height:1.4">' + AgentDB.esc(content) + '</div>';
+      if (typeof m.confidence === 'number') {
+        html += '<div style="font-size:11px;color:var(--text2);margin-top:2px">confidence: ' +
+                m.confidence.toFixed(2) + '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Relations panel
+  html += '<div data-ent-panel="relations" style="display:none">';
+  if (!relations.length) {
+    html += '<div style="color:var(--text2);font-size:12px;padding:8px 0">No relations.</div>';
+  } else {
+    relations.forEach(function (rel) {
+      var weight = (typeof rel.weight === 'number') ? rel.weight.toFixed(2) : '—';
+      html += '<div style="background:var(--bg3);padding:8px 10px;border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">';
+      html += '<div style="flex:1;min-width:0">';
+      html += '<div style="font-size:13px"><span style="font-family:var(--mono);font-size:11px;background:var(--bg2);padding:1px 6px;border-radius:4px">' +
+              AgentDB.esc(rel.relation_type || rel.edge_type || 'related') + '</span> ' +
+              AgentDB.esc(rel.other_name || rel.other_id || '') + '</div>';
+      html += '<div style="font-size:11px;color:var(--text2)">' +
+              'target: ' + AgentDB.esc(rel.other_table || '') +
+              ' • weight ' + weight + '</div>';
+      html += '</div>';
+      // Drill into another entity if the other side is an entity
+      if (rel.other_table === 'entities') {
+        html += '<button class="btn btn-sm" data-open-entity="' + AgentDB.esc(rel.other_id) + '">Open</button>';
+      }
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+
+  // Co-occurring panel
+  html += '<div data-ent-panel="co" style="display:none">';
+  if (!coOccurring.length) {
+    html += '<div style="color:var(--text2);font-size:12px;padding:8px 0">No co-occurring entities yet (need at least one shared mid/long-term memory).</div>';
+  } else {
+    coOccurring.forEach(function (co) {
+      var e = co.entity || {};
+      html += '<div style="background:var(--bg3);padding:8px 10px;border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">';
+      html += '<div><b>' + AgentDB.esc(e.canonical_name || e.id) + '</b>';
+      if (e.entity_type) {
+        html += ' <span style="font-size:11px;color:var(--text2);font-family:var(--mono)">' +
+                AgentDB.esc(e.entity_type) + '</span>';
+      }
+      html += '<div style="font-size:11px;color:var(--text2)">co-occurs in ' +
+              co.co_occurrence_count + ' memor' +
+              (co.co_occurrence_count === 1 ? 'y' : 'ies') + '</div></div>';
+      html += '<button class="btn btn-sm" data-open-entity="' + AgentDB.esc(e.id) + '">Open</button>';
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+
+  body.innerHTML = html;
+
+  // Wire tabs
+  body.querySelectorAll('[data-ent-tab]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      body.querySelectorAll('[data-ent-tab]').forEach(function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      var which = btn.dataset.entTab;
+      body.querySelectorAll('[data-ent-panel]').forEach(function (p) {
+        p.style.display = p.dataset.entPanel === which ? 'block' : 'none';
+      });
+    });
+  });
+
+  // Wire tier filter
+  body.querySelectorAll('[data-tier-filter]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      body.querySelectorAll('[data-tier-filter]').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var tf = btn.dataset.tierFilter;
+      body.querySelectorAll('.ent-memory-row').forEach(function (row) {
+        row.style.display = (tf === 'all' || row.dataset.tier === tf) ? '' : 'none';
+      });
+    });
+  });
+
+  // Wire drill-down
+  body.querySelectorAll('[data-open-entity]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      AgentDB.openEntityDetail(btn.dataset.openEntity);
+    });
+  });
+
+  // Wire save / delete
+  var saveBtn = document.getElementById('ent-save');
+  if (saveBtn) saveBtn.addEventListener('click', async function () {
+    var newName = document.getElementById('ent-name').value.trim();
+    var aliasStr = document.getElementById('ent-aliases').value.trim();
+    var aliasArr = aliasStr ? aliasStr.split(',').map(function (a) { return a.trim(); }).filter(Boolean) : [];
+    var payload = { canonical_name: newName, aliases: aliasArr };
+    var r = await AgentDB.api('PUT', '/api/entities/' + encodeURIComponent(ent.id), payload);
+    if (r.status === 'ok') {
+      AgentDB.toast('Entity updated', 'success');
+      AgentDB.openEntityDetail(ent.id); // reload with fresh data
+    } else {
+      AgentDB.toast('Update failed: ' + (r.error || 'unknown'), 'error');
+    }
+  });
+  var delBtn = document.getElementById('ent-delete');
+  if (delBtn) delBtn.addEventListener('click', async function () {
+    if (!confirm('Delete this entity? Relations and references remain in place but the entity record will be removed.')) return;
+    var r = await AgentDB.api('DELETE', '/api/entities/' + encodeURIComponent(ent.id));
+    if (r.status === 'ok') {
+      AgentDB.toast('Entity deleted', 'success');
+      AgentDB._closeEntityDetail();
+    } else {
+      AgentDB.toast('Delete failed: ' + (r.error || 'unknown'), 'error');
+    }
+  });
 };

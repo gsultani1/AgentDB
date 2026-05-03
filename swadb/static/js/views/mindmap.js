@@ -27,6 +27,44 @@
     const canvas = document.getElementById('mm-canvas');
     canvas.width = canvas.parentElement.offsetWidth || 800;
     canvas.height = 600;
+
+    // Click hit-test: if a click lands inside a rendered node's circle and
+    // that node is an entity, open the detail drawer. We also handle hover
+    // cursor change so the affordance is discoverable.
+    canvas.addEventListener('click', function(e) {
+      const node = V._hitTest(e);
+      if (node && (node.table === 'entities' || node.type === 'entity')) {
+        AgentDB.openEntityDetail(node.id);
+      }
+    });
+    canvas.addEventListener('mousemove', function(e) {
+      canvas.style.cursor = V._hitTest(e) ? 'pointer' : 'default';
+    });
+  };
+
+  V._positions = {};
+  V._radii = {};
+  V._hitTest = function(e) {
+    const canvas = document.getElementById('mm-canvas');
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    // Canvas is rendered at canvas.width/height but displayed at rect width
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    const positions = V._positions || {};
+    for (const id in positions) {
+      const p = positions[id];
+      if (!p) continue;
+      const r = (V._radii[id] || 8) + 3; // small click slop
+      const dx = p.x - x;
+      const dy = p.y - y;
+      if (dx * dx + dy * dy <= r * r) {
+        return p.node;
+      }
+    }
+    return null;
   };
 
   V.render = async function() {
@@ -172,11 +210,14 @@
       }
     });
 
-    // Draw nodes
+    // Draw nodes (and capture positions/radii for click hit-testing)
+    V._positions = positions;
+    V._radii = {};
     Object.values(positions).forEach(pos => {
       const n = pos.node;
       const depth = n.depth != null ? n.depth : 0;
       const r = depth === 0 ? 12 : 8;
+      V._radii[n.id] = r;
       const type = (n.type || 'entity').toLowerCase();
       const color = typeColors[type] || '#0d9488';
 
