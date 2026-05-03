@@ -48,25 +48,32 @@
   --info: var(--blue);
 }
 
-/* ----- Dark Theme (OS preference or [data-theme="dark"]) ----- */
+/* ----- Dark Theme -----
+   Three-way precedence (last-match wins inside CSS specificity ties):
+     1. Default :root above = light tokens
+     2. @media (prefers-color-scheme: dark) override = dark tokens (OS auto)
+     3. :root[data-theme="dark"] = explicit dark
+     4. :root[data-theme="light"] = explicit light (resets the OS-dark override)
+
+   Item 4 is essential: without it, a user on a dark-OS machine clicking
+   "Light" sees no change because the @media block keeps firing. The
+   data-theme attribute selectors come AFTER the media block so the
+   cascade picks them when present. */
 @media (prefers-color-scheme: dark) {
   :root { color-scheme: dark; }
-}
-@media (prefers-color-scheme: dark),
-       :root[data-theme="dark"] {
   :root {
-    --bg: #1C1917;          /* stone-900 */
-    --bg2: #292524;         /* stone-800 */
-    --bg3: #44403C;         /* stone-700 */
-    --border: #57534E;      /* stone-600 */
-    --text: #F5F5F4;        /* stone-100 */
-    --text2: #A8A29E;       /* stone-400, 4.6:1 on --bg (AA) */
-    --accent: #6BA3CB;      /* lighter steel-blue, 6.4:1 on --bg (AA) */
+    --bg: #1C1917;
+    --bg2: #292524;
+    --bg3: #44403C;
+    --border: #57534E;
+    --text: #F5F5F4;
+    --text2: #A8A29E;
+    --accent: #6BA3CB;
     --accent2: #89B8D8;
     --accentLight: rgba(45, 106, 159, 0.18);
-    --green: #4ADE80;       /* green-400 */
-    --red: #F87171;         /* red-400 */
-    --yellow: #FBBF24;      /* amber-400 */
+    --green: #4ADE80;
+    --red: #F87171;
+    --yellow: #FBBF24;
     --blue: #6BA3CB;
     --stm: #6BA3CB;
     --mtm: #FBBF24;
@@ -75,6 +82,7 @@
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #1C1917;
   --bg2: #292524;
   --bg3: #44403C;
@@ -92,6 +100,26 @@
   --mtm: #FBBF24;
   --ltm: #4ADE80;
   --shadow: rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #FAFAF9;
+  --bg2: #F5F5F4;
+  --bg3: #E7E5E4;
+  --border: #D6D3D1;
+  --text: #1C1917;
+  --text2: #78716C;
+  --accent: #2D6A9F;
+  --accent2: #1D5580;
+  --accentLight: #EBF3FA;
+  --green: #166534;
+  --red: #991B1B;
+  --yellow: #92400E;
+  --blue: #2D6A9F;
+  --stm: #2D6A9F;
+  --mtm: #92400E;
+  --ltm: #166534;
+  --shadow: rgba(28, 25, 23, 0.08);
 }
 
 /* ----- Reset / Base ----- */
@@ -840,28 +868,38 @@ label {
 
 /* Context window meter — sits above the textarea */
 .ctx-meter {
-  margin: 0 0 6px 0;
+  margin: 4px 0 8px 0;
   cursor: help;
 }
 .ctx-meter-bar {
-  height: 4px;
+  height: 6px;
   background: var(--bg3);
-  border-radius: 2px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
   overflow: hidden;
+  /* Always visible even at 0% — the track itself is the indicator that the
+     meter exists. Without the border the empty bar is too easy to miss on
+     surfaces that share bg3. */
 }
 .ctx-meter-fill {
   height: 100%;
+  /* Minimum 2px so a tiny, non-zero usage isn't completely invisible */
+  min-width: 2px;
   width: 0;
   border-radius: 2px;
   transition: width 0.15s ease, background 0.2s ease;
+}
+.ctx-meter-fill.ctx-meter-empty {
+  /* True zero — hide the min-width pill so 0% looks like 0% */
+  min-width: 0;
 }
 .ctx-meter-fill.ctx-meter-green { background: var(--green); }
 .ctx-meter-fill.ctx-meter-amber { background: var(--yellow); }
 .ctx-meter-fill.ctx-meter-red   { background: var(--red); }
 .ctx-meter-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text2);
-  margin-top: 2px;
+  margin-top: 3px;
   font-family: var(--mono);
 }
 .chat-file-preview {

@@ -26,6 +26,11 @@ ENV/
 
 # Database files
 *.db
+*.db.preencrypt.bak
+*.db.predecrypt.bak
+*.db.encrypted-by-test
+# ANN sidecar directory created next to the .db file at runtime
+*.ann/
 
 # OS
 .DS_Store

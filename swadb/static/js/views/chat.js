@@ -45,6 +45,9 @@
         ? 'Session: ' + AgentDB.esc(AgentDB.state.chatSessionId.slice(0, 8))
         : 'No active session';
       html += '  </span>';
+      // Sidebar toggle lives in the header so it stays reachable when the
+      // sidebar is hidden. Mirrors the in-sidebar button label.
+      html += '  <button class="btn btn-sm" id="chat-show-context" style="margin-left:auto" title="Show / hide the observability sidebar">Hide Context</button>';
       html += '</div>';
 
       /* ---- Chat layout ---- */
@@ -134,6 +137,10 @@
       });
 
       document.getElementById('chat-sidebar-toggle').addEventListener('click', function () {
+        V.toggleSidebar();
+      });
+      var headerToggle = document.getElementById('chat-show-context');
+      if (headerToggle) headerToggle.addEventListener('click', function () {
         V.toggleSidebar();
       });
       document.getElementById('chat-raw-toggle').addEventListener('click', function () {
@@ -721,17 +728,16 @@
      ============================================================= */
   V.toggleSidebar = function toggleSidebar() {
     var sidebar = document.getElementById('chat-sidebar');
-    var btn = document.getElementById('chat-sidebar-toggle');
     if (!sidebar) return;
-
     var isHidden = sidebar.style.display === 'none';
-    if (isHidden) {
-      sidebar.style.display = '';
-      if (btn) btn.textContent = 'Hide Context';
-    } else {
-      sidebar.style.display = 'none';
-      if (btn) btn.textContent = 'Show Context';
-    }
+    var label = isHidden ? 'Hide Context' : 'Show Context';
+    sidebar.style.display = isHidden ? '' : 'none';
+    // Update both toggles (in-sidebar + header) so they stay in sync. The
+    // header toggle is the persistent escape hatch when the sidebar is hidden.
+    var inSidebarBtn = document.getElementById('chat-sidebar-toggle');
+    if (inSidebarBtn) inSidebarBtn.textContent = label;
+    var headerBtn = document.getElementById('chat-show-context');
+    if (headerBtn) headerBtn.textContent = label;
   };
 
   /* ============================================================
@@ -782,8 +788,9 @@
     var max = V.contextWindowTokens || 200000;
     var pct = Math.min(100, Math.round((total / max) * 100));
     bar.style.width = pct + '%';
-    bar.classList.remove('ctx-meter-green', 'ctx-meter-amber', 'ctx-meter-red');
-    if (pct < 70) bar.classList.add('ctx-meter-green');
+    bar.classList.remove('ctx-meter-green', 'ctx-meter-amber', 'ctx-meter-red', 'ctx-meter-empty');
+    if (total === 0) bar.classList.add('ctx-meter-empty');
+    else if (pct < 70) bar.classList.add('ctx-meter-green');
     else if (pct < 90) bar.classList.add('ctx-meter-amber');
     else bar.classList.add('ctx-meter-red');
     var totalFmt = total.toLocaleString();

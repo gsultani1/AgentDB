@@ -252,6 +252,83 @@ def cmd_ann_rebuild(args):
         conn.close()
 
 
+def cmd_encryption_status(args):
+    """Print encryption state for a DB file. No server needed."""
+    from swadb.database import is_db_encrypted, encryption_status
+    db_path = Path(args.db)
+    s = encryption_status(str(db_path))
+    print(f"DB path:           {db_path}")
+    print(f"DB exists:         {db_path.exists()}")
+    print(f"DB encrypted:      {s.get('db_encrypted')}")
+    print(f"sqlcipher library: {s.get('library') or 'NOT INSTALLED'}")
+    print(f"SWADB_PASSPHRASE:  {'set' if s.get('passphrase_set') else 'unset'}")
+    bak_pre = db_path.with_suffix(db_path.suffix + ".preencrypt.bak")
+    bak_post = db_path.with_suffix(db_path.suffix + ".predecrypt.bak")
+    if bak_pre.exists():
+        print(f"Recovery backup:   {bak_pre} (plaintext copy from before encrypt)")
+    if bak_post.exists():
+        print(f"Recovery backup:   {bak_post} (encrypted copy from before decrypt)")
+
+
+def cmd_encryption_enable(args):
+    """Encrypt a plaintext DB. Refuses if the DB is already encrypted."""
+    from swadb.database import encrypt_database, is_db_encrypted
+    db_path = Path(args.db)
+    if not db_path.exists():
+        print(f"Database not found at {db_path}.")
+        sys.exit(1)
+    if is_db_encrypted(str(db_path)):
+        print(f"Database at {db_path} is already encrypted. Use 'rekey' to change the passphrase.")
+        sys.exit(1)
+    try:
+        encrypt_database(str(db_path), args.passphrase)
+        print(f"Encrypted {db_path}. Plaintext backup kept as {db_path}.preencrypt.bak")
+        print(f"NEXT STEP: set SWADB_PASSPHRASE={args.passphrase!r} in your environment")
+        print("           before running 'swadb serve' (or any other CLI command).")
+    except Exception as e:
+        print(f"Encryption failed: {e}")
+        sys.exit(1)
+
+
+def cmd_encryption_disable(args):
+    """Decrypt an encrypted DB. Use this if the UI has locked you out."""
+    from swadb.database import decrypt_database, is_db_encrypted
+    db_path = Path(args.db)
+    if not db_path.exists():
+        print(f"Database not found at {db_path}.")
+        sys.exit(1)
+    if not is_db_encrypted(str(db_path)):
+        print(f"Database at {db_path} is already plaintext. Nothing to do.")
+        return
+    try:
+        decrypt_database(str(db_path), args.passphrase)
+        print(f"Decrypted {db_path}. Encrypted backup kept as {db_path}.predecrypt.bak")
+        print("You can now run 'swadb serve' without SWADB_PASSPHRASE.")
+    except Exception as e:
+        print(f"Decryption failed: {e}")
+        print("Tips: verify the passphrase, or restore from the .preencrypt.bak file")
+        print("      that was saved at the time of original encryption.")
+        sys.exit(1)
+
+
+def cmd_encryption_rekey(args):
+    """Change the encryption passphrase on an encrypted DB."""
+    from swadb.database import rekey_database, is_db_encrypted
+    db_path = Path(args.db)
+    if not db_path.exists():
+        print(f"Database not found at {db_path}.")
+        sys.exit(1)
+    if not is_db_encrypted(str(db_path)):
+        print(f"Database at {db_path} is plaintext. Use 'enable' to encrypt first.")
+        sys.exit(1)
+    try:
+        rekey_database(str(db_path), args.old_passphrase, args.new_passphrase)
+        print(f"Rekeyed {db_path}. Update SWADB_PASSPHRASE to the new value before next start.")
+    except Exception as e:
+        print(f"Rekey failed: {e}")
+        sys.exit(1)
+
+
 def cmd_cache_stats(args):
     """Show query cache stats."""
     db_path = Path(args.db)
@@ -396,6 +473,22 @@ def build_parser():
     cache_sub.add_parser("stats", help="Show query cache row count, hits, oldest entry")
     cache_sub.add_parser("clear", help="Drop all cached query results")
 
+    # encryption (offline emergency-recovery — works without a running server)
+    p_enc = subparsers.add_parser("encryption",
+        help="Encryption management (offline; works when locked out of the UI)")
+    enc_sub = p_enc.add_subparsers(dest="encryption_command")
+    enc_sub.add_parser("status", help="Show whether the DB file is currently encrypted")
+    p_enc_enable = enc_sub.add_parser("enable",
+        help="Encrypt a plaintext DB. Keeps a .preencrypt.bak backup.")
+    p_enc_enable.add_argument("--passphrase", required=True, help="New passphrase")
+    p_enc_disable = enc_sub.add_parser("disable",
+        help="Decrypt an encrypted DB. Use this if the UI locked you out.")
+    p_enc_disable.add_argument("--passphrase", required=True, help="Current passphrase")
+    p_enc_rekey = enc_sub.add_parser("rekey",
+        help="Change the encryption passphrase")
+    p_enc_rekey.add_argument("--old-passphrase", required=True)
+    p_enc_rekey.add_argument("--new-passphrase", required=True)
+
     return parser
 
 
@@ -470,6 +563,17 @@ def main():
             cache_dispatch[args.cache_command](args)
         else:
             print("Usage: swadb cache {stats|clear}")
+    elif args.command == "encryption":
+        enc_dispatch = {
+            "status": cmd_encryption_status,
+            "enable": cmd_encryption_enable,
+            "disable": cmd_encryption_disable,
+            "rekey": cmd_encryption_rekey,
+        }
+        if args.encryption_command in enc_dispatch:
+            enc_dispatch[args.encryption_command](args)
+        else:
+            print("Usage: swadb encryption {status|enable|disable|rekey}")
     else:
         parser.print_help()
 
