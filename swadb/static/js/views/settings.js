@@ -58,6 +58,20 @@
 
     var html = '<h2 style="margin-bottom:16px">Settings</h2>';
 
+    // Appearance (theme toggle — applies immediately + persists to meta_config)
+    var themeVal = configMap['theme_preference'] || 'auto';
+    html += '<div class="card" style="margin-bottom:16px"><h3>Appearance</h3>';
+    html += '<div style="display:flex;gap:8px;margin-top:8px">';
+    ['auto', 'light', 'dark'].forEach(function (mode) {
+      var sel = themeVal === mode;
+      html += '<button class="btn' + (sel ? ' btn-primary' : '') +
+              '" onclick="AgentDB.views.settings.setTheme(\'' + mode + '\')">' +
+              mode.charAt(0).toUpperCase() + mode.slice(1) + '</button>';
+    });
+    html += '</div>';
+    html += '<div style="font-size:11px;color:var(--text2);margin-top:6px">Auto follows your OS color-scheme preference.</div>';
+    html += '</div>';
+
     // AI Providers section (dynamic from llm_providers table)
     html += '<div class="card" style="margin-bottom:16px"><h3>AI Providers</h3>';
     html += '<p style="font-size:12px;color:var(--text2);margin-bottom:12px">Configure multiple AI providers. The default provider is used for chat and consolidation.</p>';
@@ -69,8 +83,15 @@
     html += '<div><label style="font-size:12px;color:var(--text2)">Type</label><select id="prov-type" style="width:100%"><option value="claude">Claude</option><option value="openai">OpenAI</option><option value="local">Local</option></select></div>';
     html += '<div><label style="font-size:12px;color:var(--text2)">Model</label><input type="text" id="prov-model" placeholder="claude-sonnet-4-20250514" style="width:100%"></div>';
     html += '<div><label style="font-size:12px;color:var(--text2)">API Key</label><input type="password" id="prov-key" placeholder="sk-..." style="width:100%"></div>';
-    html += '<div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text2)">Endpoint (optional)</label><input type="text" id="prov-endpoint" placeholder="Leave blank for default" style="width:100%"></div>';
+    html += '<div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text2)">Endpoint (optional)</label><input type="text" id="prov-endpoint" placeholder="Leave blank for default; Ollama: http://localhost:11434" style="width:100%"></div>';
     html += '</div>';
+    // Ollama model discovery — only meaningful when type=local; a small chip list
+    // appears below the form after the discover call returns.
+    html += '<div style="display:flex;gap:8px;align-items:center;margin-top:10px">';
+    html += '<button class="btn" id="discover-ollama-btn" title="Probe Ollama at the endpoint above (or localhost:11434) and list installed models">Discover Local Models</button>';
+    html += '<span id="discover-ollama-status" style="font-size:11px;color:var(--text2)"></span>';
+    html += '</div>';
+    html += '<div id="discover-ollama-results" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>';
     html += '<div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-primary" id="save-provider-btn">Save Provider</button><button class="btn" id="cancel-provider-btn">Cancel</button></div>';
     html += '</div></div>';
 
@@ -177,6 +198,14 @@
       document.getElementById('add-provider-form').style.display = 'none';
     };
     document.getElementById('save-provider-btn').onclick = V.createProvider;
+    document.getElementById('discover-ollama-btn').onclick = V.discoverOllama;
+    document.getElementById('discover-ollama-results').addEventListener('click', function(e) {
+      var chip = e.target.closest('[data-pick-model]');
+      if (chip) {
+        document.getElementById('prov-model').value = chip.dataset.pickModel;
+        document.getElementById('prov-type').value = 'local';
+      }
+    });
     document.getElementById('providers-list').addEventListener('click', function(e) {
       var btn;
       if ((btn = e.target.closest('[data-set-default]'))) {
@@ -259,6 +288,33 @@
     }
   };
 
+  V.discoverOllama = async function() {
+    var endpoint = document.getElementById('prov-endpoint').value.trim()
+                   || 'http://localhost:11434';
+    var status = document.getElementById('discover-ollama-status');
+    var results = document.getElementById('discover-ollama-results');
+    status.textContent = 'Probing ' + endpoint + '…';
+    results.innerHTML = '';
+    var r = await AgentDB.api('POST', '/api/providers/ollama/discover', { endpoint: endpoint });
+    if (r.status !== 'ok' || !r.data) {
+      status.textContent = 'Failed: ' + (r.error || 'unknown');
+      return;
+    }
+    if (r.data.error) {
+      status.textContent = r.data.error;
+      return;
+    }
+    var models = r.data.models || [];
+    if (!models.length) {
+      status.textContent = 'No models installed at ' + endpoint;
+      return;
+    }
+    status.textContent = 'Found ' + models.length + ' model' + (models.length === 1 ? '' : 's') + ' — click to fill';
+    results.innerHTML = models.map(function(m) {
+      return '<button class="btn btn-sm" data-pick-model="' + AgentDB.esc(m) + '">' + AgentDB.esc(m) + '</button>';
+    }).join('');
+  };
+
   V.setDefault = async function(id) {
     await AgentDB.api('PUT', '/api/providers/' + id, { is_default: true });
     AgentDB.toast('Default provider updated', 'success');
@@ -303,6 +359,16 @@
     } else {
       AgentDB.toast('Failed to save ' + key, 'error');
     }
+  };
+
+  V.setTheme = async function(mode) {
+    AgentDB.applyTheme(mode);
+    var r = await AgentDB.api('PUT', '/api/config/theme_preference', { value: mode });
+    if (r.status !== 'ok') {
+      AgentDB.toast('Theme saved locally but failed to persist: ' + (r.error || 'unknown'), 'error');
+    }
+    // Re-render so the active button highlights correctly
+    V.load();
   };
 
   V.runMaint = async function(action) {

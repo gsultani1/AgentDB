@@ -70,6 +70,7 @@
       html += '  <div class="chat-sidebar" id="chat-sidebar">';
       html += '    <div class="flex items-center justify-between mb-8">';
       html += '      <button class="btn btn-sm" id="chat-sidebar-toggle">Hide Context</button>';
+      html += '      <button class="btn btn-sm" id="chat-raw-toggle" title="Toggle raw JSON view of the request and response payloads">Raw</button>';
       html += '    </div>';
       html += '    <div class="text-sm font-bold mb-8" style="text-transform:uppercase;letter-spacing:.04em;color:var(--text2)">Observability</div>';
       html += '    <div id="chat-context-content">';
@@ -128,6 +129,9 @@
 
       document.getElementById('chat-sidebar-toggle').addEventListener('click', function () {
         V.toggleSidebar();
+      });
+      document.getElementById('chat-raw-toggle').addEventListener('click', function () {
+        V.toggleRawMode();
       });
 
       var input = document.getElementById('chat-input');
@@ -335,22 +339,27 @@
       var provider = document.getElementById('chat-provider');
       if (provider) payload.provider = provider.value;
 
+      /* Capture for Raw Mode — independent of render branch */
+      V.lastRawRequest = payload;
       AgentDB.api('POST', '/api/agent/chat', payload)
         .then(function (res) {
           /* Remove typing indicator */
           V.removeTyping(typingEl);
 
           var d = res.data || {};
+          V.lastRawResponse = res;
           if (res.status === 'ok' && d.response) {
             /* Append assistant message */
             V.appendMsg('assistant', d.response);
             AgentDB.state.chatHistory.push({ role: 'assistant', content: d.response });
 
-            /* Update sidebar with context */
+            /* Update sidebar with context (or raw view) */
             V.renderContext(d);
           } else {
             var errMsg = res.error || 'Unknown error from agent';
             V.appendMsg('error', errMsg);
+            // Even on error, refresh raw view so the user can see the failure payload
+            if (V.rawMode) V.renderRawMode();
           }
         })
         .catch(function () {
@@ -455,6 +464,12 @@
   V.renderContext = function renderContext(data) {
     var ctx = document.getElementById('chat-context-content');
     if (!ctx) return;
+
+    // Raw mode short-circuits the rendered widgets and just dumps the JSON
+    if (V.rawMode) {
+      V.renderRawMode();
+      return;
+    }
 
     var payload = data.context_payload || {};
     var memBucket = payload.memories || {};
@@ -689,5 +704,48 @@
       sidebar.style.display = 'none';
       if (btn) btn.textContent = 'Show Context';
     }
+  };
+
+  /* ============================================================
+     V.toggleRawMode  —  Switch the observability sidebar between
+     rendered widgets and a raw JSON dump of the request/response.
+     ============================================================= */
+  V.rawMode = false;
+  V.toggleRawMode = function () {
+    V.rawMode = !V.rawMode;
+    var btn = document.getElementById('chat-raw-toggle');
+    if (btn) {
+      btn.textContent = V.rawMode ? 'Rendered' : 'Raw';
+      btn.classList.toggle('btn-primary', V.rawMode);
+    }
+    if (V.rawMode) {
+      V.renderRawMode();
+    } else if (V.lastRawResponse && V.lastRawResponse.data) {
+      V.renderContext(V.lastRawResponse.data);
+    } else {
+      var ctx = document.getElementById('chat-context-content');
+      if (ctx) ctx.innerHTML =
+        '<p class="text-muted text-sm">Send a message to see retrieved context and observability data here.</p>';
+    }
+  };
+
+  V.renderRawMode = function () {
+    var ctx = document.getElementById('chat-context-content');
+    if (!ctx) return;
+    if (!V.lastRawRequest && !V.lastRawResponse) {
+      ctx.innerHTML =
+        '<p class="text-muted text-sm">No request yet. Send a message to populate the raw view.</p>';
+      return;
+    }
+    var html = '';
+    html += '<div class="obs-section"><div class="obs-section-title">Request → /api/agent/chat</div>';
+    html += '<pre style="background:var(--bg2);padding:10px;border-radius:6px;font-size:11px;font-family:var(--mono);overflow-x:auto;white-space:pre-wrap;word-break:break-word">' +
+            AgentDB.esc(JSON.stringify(V.lastRawRequest || {}, null, 2)) +
+            '</pre></div>';
+    html += '<div class="obs-section" style="margin-top:12px"><div class="obs-section-title">Response</div>';
+    html += '<pre style="background:var(--bg2);padding:10px;border-radius:6px;font-size:11px;font-family:var(--mono);overflow-x:auto;white-space:pre-wrap;word-break:break-word">' +
+            AgentDB.esc(JSON.stringify(V.lastRawResponse || {}, null, 2)) +
+            '</pre></div>';
+    ctx.innerHTML = html;
   };
 })();

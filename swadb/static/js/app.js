@@ -434,11 +434,35 @@ AgentDB._pollNotifications = function pollNotifications() {
 /* ---------------------------------------------------------------
    Init
    --------------------------------------------------------------- */
+// Apply theme. Reads localStorage first for instant paint (no FOUC),
+// then refreshes from server config in case the user changed it on
+// another machine. theme_preference values: "auto" | "light" | "dark".
+AgentDB.applyTheme = function (pref) {
+  if (pref === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else if (pref === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    // "auto" or unknown -> remove attribute, fall through to OS preference
+    document.documentElement.removeAttribute('data-theme');
+  }
+  try { localStorage.setItem('theme-preference', pref || 'auto'); } catch (_) {}
+};
+AgentDB.applyTheme(localStorage.getItem('theme-preference') || 'auto');
+
 document.addEventListener('DOMContentLoaded', function () {
   // Apply sidebar state
   if (AgentDB.state.sidebarCollapsed && window.innerWidth > 768) {
     document.body.classList.add('sidebar-collapsed');
   }
+
+  // Sync theme from server config (handles cross-device changes; falls
+  // back to whatever localStorage already applied above).
+  AgentDB.api('GET', '/api/config/theme_preference').then(function (r) {
+    if (r.status === 'ok' && r.data && r.data.value) {
+      AgentDB.applyTheme(r.data.value);
+    }
+  });
 
   // Ensure toast container exists
   if (!document.querySelector('.toast-container')) {
