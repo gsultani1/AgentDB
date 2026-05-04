@@ -1239,39 +1239,67 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     return
                 return _json_response(self, 200, data=data)
 
+            # Batch endpoints — the CRUD layer takes (id, table) pairs and
+            # crud.batch_promote_memories takes a "from_tier" string, so each
+            # handler reshapes the simpler `{ids, memory_table}` API contract
+            # into whatever the CRUD function expects.
+            _MEMORY_TABLES = {"short_term_memory", "midterm_memory", "long_term_memory"}
+
             if path == "/api/memories/batch/pin":
                 ids = body.get("ids", [])
                 table = body.get("memory_table", "")
                 agent_id = body.get("agent_id", "default")
-                if not ids or not table:
-                    return _json_response(self, 400, error="'ids' and 'memory_table' are required")
-                result = crud.batch_pin_memories(conn, ids, table, agent_id=agent_id)
-                return _json_response(self, 200, data=result)
+                if not ids or table not in _MEMORY_TABLES:
+                    return _json_response(self, 400,
+                        error="'ids' (non-empty list) and 'memory_table' (one of "
+                              "short_term_memory/midterm_memory/long_term_memory) are required")
+                pairs = [(i, table) for i in ids]
+                pin_ids = crud.batch_pin_memories(conn, pairs, agent_id=agent_id)
+                return _json_response(self, 200, data={"pinned": len(pin_ids), "pin_ids": pin_ids})
 
             if path == "/api/memories/batch/tag":
                 ids = body.get("ids", [])
-                table = body.get("target_table", "")
-                tag_name = body.get("tag_name", "")
-                if not ids or not table or not tag_name:
-                    return _json_response(self, 400, error="'ids', 'target_table', and 'tag_name' are required")
-                result = crud.batch_tag_memories(conn, ids, table, tag_name)
-                return _json_response(self, 200, data=result)
+                table = body.get("target_table") or body.get("memory_table", "")
+                tag_name = (body.get("tag_name") or "").strip()
+                if not ids or table not in _MEMORY_TABLES or not tag_name:
+                    return _json_response(self, 400,
+                        error="'ids', 'memory_table' (or 'target_table'), and 'tag_name' are required")
+                # Resolve or create the tag
+                tag = crud.find_tag_by_name(conn, tag_name)
+                tag_id = tag["id"] if tag else crud.create_tag(conn, tag_name)
+                pairs = [(i, table) for i in ids]
+                crud.batch_tag_memories(conn, pairs, tag_id)
+                return _json_response(self, 200, data={
+                    "tagged": len(ids), "tag_id": tag_id, "tag_name": tag_name,
+                })
 
             if path == "/api/memories/batch/delete":
                 ids = body.get("ids", [])
                 table = body.get("memory_table", "")
-                if not ids or not table:
-                    return _json_response(self, 400, error="'ids' and 'memory_table' are required")
-                result = crud.batch_delete_memories(conn, ids, table)
-                return _json_response(self, 200, data=result)
+                if not ids or table not in _MEMORY_TABLES:
+                    return _json_response(self, 400,
+                        error="'ids' and 'memory_table' (one of short_term_memory/midterm_memory/long_term_memory) are required")
+                pairs = [(i, table) for i in ids]
+                crud.batch_delete_memories(conn, pairs)
+                # Invalidate query cache for each affected memory id
+                for i in ids:
+                    crud.invalidate_query_cache_for_memory(conn, i)
+                return _json_response(self, 200, data={"deleted": len(ids)})
 
             if path == "/api/memories/batch/promote":
                 ids = body.get("ids", [])
-                source_table = body.get("source_table", "")
-                if not ids or not source_table:
-                    return _json_response(self, 400, error="'ids' and 'source_table' are required")
-                result = crud.batch_promote_memories(conn, ids, source_table)
-                return _json_response(self, 200, data=result)
+                # Accept either source_table or memory_table; reduce to a tier key
+                src_table = body.get("source_table") or body.get("memory_table", "")
+                _table_to_tier = {"short_term_memory": "short", "midterm_memory": "mid"}
+                from_tier = _table_to_tier.get(src_table)
+                if not ids or not from_tier:
+                    return _json_response(self, 400,
+                        error="'ids' and a promotable 'memory_table' "
+                              "(short_term_memory or midterm_memory) are required")
+                promoted = crud.batch_promote_memories(conn, ids, from_tier)
+                return _json_response(self, 200, data={
+                    "promoted": len(promoted), "new_ids": promoted,
+                })
 
             if path == "/api/chat/file":
                 filename = body.get("filename", "")

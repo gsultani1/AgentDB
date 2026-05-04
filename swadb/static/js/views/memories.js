@@ -3,11 +3,19 @@
   const el = () => document.getElementById('view-memories');
   let currentTier = 'short';
 
+  // Selection state — Set of memory IDs. Survives re-renders so switching
+  // search/filter doesn't drop the user's pick. Cleared on tier change
+  // (different tier = different table = different IDs).
+  V._selected = new Set();
+  V._lastMemories = [];
+
   const TIERS = [
-    { key: 'short', label: 'Short-Term', badge: 'short_term' },
-    { key: 'mid', label: 'Midterm', badge: 'midterm' },
-    { key: 'long', label: 'Long-Term', badge: 'long_term' }
+    { key: 'short', label: 'Short-Term', badge: 'short_term', table: 'short_term_memory' },
+    { key: 'mid',   label: 'Midterm',   badge: 'midterm',     table: 'midterm_memory' },
+    { key: 'long',  label: 'Long-Term', badge: 'long_term',   table: 'long_term_memory' }
   ];
+
+  function tierForKey(k) { return TIERS.find(t => t.key === k); }
 
   const CATEGORIES = [
     'fact', 'relationship', 'preference', 'procedure',
@@ -56,6 +64,18 @@
         <button class="btn" id="mem-clear-btn" style="display:none">Clear</button>
       </div>
 
+      <!-- Batch action bar — sticky to top once any row is selected -->
+      <div id="mem-batch-bar" style="display:none;background:var(--accentLight);border:1px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px">
+        <span id="mem-batch-count" style="font-weight:600">0 selected</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm" id="mem-batch-pin">Pin</button>
+        <button class="btn btn-sm" id="mem-batch-tag">Tag…</button>
+        <button class="btn btn-sm" id="mem-batch-promote">Promote</button>
+        <button class="btn btn-sm" id="mem-batch-export">Export JSON</button>
+        <button class="btn btn-sm" id="mem-batch-delete" style="color:var(--red)">Delete</button>
+        <button class="btn btn-sm" id="mem-batch-clear">Clear</button>
+      </div>
+
       <div id="mem-table-wrap"></div>`;
 
     wireEvents();
@@ -63,46 +83,75 @@
   };
 
   function wireEvents() {
-    // Tier tabs
+    // Tier tabs — clearing selection when tier changes since rows belong to a different table
     document.getElementById('mem-tier-tabs').addEventListener('click', function(e) {
       const btn = e.target.closest('[data-tier]');
       if (!btn) return;
       currentTier = btn.dataset.tier;
+      V._selected.clear();
       document.querySelectorAll('#mem-tier-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tier === currentTier));
       loadMemories();
     });
 
-    // Toggle create form
     document.getElementById('mem-toggle-create').addEventListener('click', function() {
       const form = document.getElementById('mem-create-form');
       form.style.display = form.style.display === 'none' ? 'block' : 'none';
     });
 
-    // Submit create
     document.getElementById('mem-submit-create').addEventListener('click', createMemory);
 
-    // Search
     document.getElementById('mem-search-btn').addEventListener('click', doSearch);
     document.getElementById('mem-search-input').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') doSearch();
     });
-
-    // Clear search
     document.getElementById('mem-clear-btn').addEventListener('click', function() {
       document.getElementById('mem-search-input').value = '';
       document.getElementById('mem-clear-btn').style.display = 'none';
       loadMemories();
     });
 
-    // Delegated events on table
+    // Delegated table events: checkbox toggle, row expand, single-row delete
     document.getElementById('mem-table-wrap').addEventListener('click', function(e) {
+      const cb = e.target.closest('input.mem-row-cb, input.mem-select-all');
+      if (cb) {
+        if (cb.classList.contains('mem-select-all')) {
+          // toggle all
+          document.querySelectorAll('input.mem-row-cb').forEach(function(b) {
+            b.checked = cb.checked;
+            if (cb.checked) V._selected.add(b.dataset.id);
+            else V._selected.delete(b.dataset.id);
+          });
+        } else {
+          if (cb.checked) V._selected.add(cb.dataset.id);
+          else V._selected.delete(cb.dataset.id);
+        }
+        renderBatchBar();
+        // Don't expand the row when clicking the checkbox
+        e.stopPropagation();
+        return;
+      }
       const delBtn = e.target.closest('.mem-delete-btn');
       if (delBtn) {
+        e.stopPropagation();
         deleteMemory(delBtn.dataset.tier, delBtn.dataset.id);
         return;
       }
       const row = e.target.closest('.mem-row');
       if (row) toggleExpand(row);
+    });
+
+    // Batch bar actions
+    document.getElementById('mem-batch-pin').addEventListener('click', batchPin);
+    document.getElementById('mem-batch-tag').addEventListener('click', batchTag);
+    document.getElementById('mem-batch-promote').addEventListener('click', batchPromote);
+    document.getElementById('mem-batch-export').addEventListener('click', batchExport);
+    document.getElementById('mem-batch-delete').addEventListener('click', batchDelete);
+    document.getElementById('mem-batch-clear').addEventListener('click', function() {
+      V._selected.clear();
+      document.querySelectorAll('input.mem-row-cb, input.mem-select-all').forEach(function(b) {
+        b.checked = false;
+      });
+      renderBatchBar();
     });
   }
 
@@ -112,7 +161,8 @@
       document.getElementById('mem-table-wrap').innerHTML = '<p style="color:var(--text2)">Failed to load memories.</p>';
       return;
     }
-    renderTable(r.data || []);
+    V._lastMemories = r.data || [];
+    renderTable(V._lastMemories);
   }
 
   async function doSearch() {
@@ -128,18 +178,22 @@
       document.getElementById('mem-table-wrap').innerHTML = '<p style="color:var(--text2)">Search failed.</p>';
       return;
     }
-    renderTable(r.data || []);
+    V._lastMemories = r.data || [];
+    renderTable(V._lastMemories);
   }
 
   function renderTable(memories) {
     if (!memories.length) {
       document.getElementById('mem-table-wrap').innerHTML = '<p style="color:var(--text2)">No memories found.</p>';
+      renderBatchBar();
       return;
     }
 
     const isSTM = currentTier === 'short';
+    const allChecked = memories.length > 0 && memories.every(m => V._selected.has(m.id));
     const headers = `
       <tr>
+        <th style="width:32px"><input type="checkbox" class="mem-select-all" ${allChecked ? 'checked' : ''} title="Select all"></th>
         <th style="width:90px">ID</th>
         <th>Content</th>
         ${isSTM ? '' : '<th style="width:90px">Confidence</th>'}
@@ -154,9 +208,12 @@
       const created = AgentDB.formatDate(m.created_at || '').substring(0, 16);
       const cat = m.category || '';
       const tier = m.tier || currentTier;
+      const checked = V._selected.has(m.id) ? 'checked' : '';
+      const cols = isSTM ? 6 : 7;
 
       return `
         <tr class="mem-row" data-id="${AgentDB.esc(m.id)}" data-tier="${tier}">
+          <td><input type="checkbox" class="mem-row-cb" data-id="${AgentDB.esc(m.id)}" ${checked}></td>
           <td><code style="font-size:11px">${AgentDB.esc(id)}</code></td>
           <td>${content}</td>
           ${isSTM ? '' : `<td>${m.confidence != null ? m.confidence : ''}</td>`}
@@ -165,7 +222,7 @@
           <td><button class="btn mem-delete-btn" data-id="${AgentDB.esc(m.id)}" data-tier="${tier}" style="padding:2px 8px;font-size:11px;background:var(--red,#e74c3c);color:#fff">Del</button></td>
         </tr>
         <tr class="mem-expand" data-expand-for="${AgentDB.esc(m.id)}" style="display:none">
-          <td colspan="${isSTM ? 5 : 6}" style="padding:12px;background:var(--bg2,#1a1a2e);font-size:12px;line-height:1.6">
+          <td colspan="${cols}" style="padding:12px;background:var(--bg2,#1a1a2e);font-size:12px;line-height:1.6">
             <b>Full ID:</b> <code>${AgentDB.esc(m.id || '')}</code><br>
             <b>Agent:</b> ${AgentDB.esc(m.agent_id || 'N/A')}<br>
             <b>Source:</b> ${AgentDB.esc(m.source || 'N/A')}<br>
@@ -181,6 +238,130 @@
         <thead>${headers}</thead>
         <tbody>${rows}</tbody>
       </table>`;
+    renderBatchBar();
+  }
+
+  function renderBatchBar() {
+    const bar = document.getElementById('mem-batch-bar');
+    const n = V._selected.size;
+    bar.style.display = n > 0 ? 'flex' : 'none';
+    if (n === 0) return;
+    document.getElementById('mem-batch-count').textContent =
+      n + ' selected' + (currentTier === 'long' ? '' : '');
+    // Promote disabled on LTM (nowhere to promote to)
+    const promoteBtn = document.getElementById('mem-batch-promote');
+    if (currentTier === 'long') {
+      promoteBtn.disabled = true;
+      promoteBtn.title = 'Long-term memories cannot be promoted further';
+      promoteBtn.style.opacity = '0.5';
+    } else {
+      promoteBtn.disabled = false;
+      promoteBtn.title = 'Promote selected to ' + (currentTier === 'short' ? 'midterm' : 'long-term');
+      promoteBtn.style.opacity = '1';
+    }
+  }
+
+  function selectedIds() {
+    return Array.from(V._selected);
+  }
+
+  function selectedTable() {
+    return tierForKey(currentTier).table;
+  }
+
+  function selectedMemories() {
+    return V._lastMemories.filter(m => V._selected.has(m.id));
+  }
+
+  // ── Batch actions ──────────────────────────────────────────────────
+  async function batchPin() {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    const r = await AgentDB.api('POST', '/api/memories/batch/pin', {
+      ids: ids, memory_table: selectedTable()
+    });
+    if (r.status === 'ok') {
+      AgentDB.toast('Pinned ' + (r.data && r.data.pinned ? r.data.pinned : ids.length) + ' memories', 'success');
+      V._selected.clear();
+      renderBatchBar();
+    } else {
+      AgentDB.toast('Pin failed: ' + (r.error || 'unknown'), 'error');
+    }
+  }
+
+  async function batchTag() {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    const tagName = prompt('Tag name to apply to ' + ids.length + ' memor' +
+                            (ids.length === 1 ? 'y' : 'ies') + ':');
+    if (!tagName || !tagName.trim()) return;
+    const r = await AgentDB.api('POST', '/api/memories/batch/tag', {
+      ids: ids, target_table: selectedTable(), tag_name: tagName.trim()
+    });
+    if (r.status === 'ok') {
+      AgentDB.toast('Tagged ' + ids.length + ' memories with ' + tagName.trim(), 'success');
+      V._selected.clear();
+      await loadMemories();
+    } else {
+      AgentDB.toast('Tag failed: ' + (r.error || 'unknown'), 'error');
+    }
+  }
+
+  async function batchPromote() {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    if (currentTier === 'long') {
+      AgentDB.toast('Long-term memories cannot be promoted further', 'error');
+      return;
+    }
+    const target = currentTier === 'short' ? 'midterm' : 'long-term';
+    if (!confirm('Promote ' + ids.length + ' memor' + (ids.length === 1 ? 'y' : 'ies') +
+                 ' to ' + target + '? They will be moved out of the current tier.')) return;
+    const r = await AgentDB.api('POST', '/api/memories/batch/promote', {
+      ids: ids, source_table: selectedTable()
+    });
+    if (r.status === 'ok') {
+      const promoted = (r.data && r.data.promoted) || ids.length;
+      AgentDB.toast('Promoted ' + promoted + ' memories to ' + target, 'success');
+      V._selected.clear();
+      await loadMemories();
+    } else {
+      AgentDB.toast('Promote failed: ' + (r.error || 'unknown'), 'error');
+    }
+  }
+
+  function batchExport() {
+    const memories = selectedMemories();
+    if (!memories.length) return;
+    const blob = new Blob([JSON.stringify(memories, null, 2)],
+                          { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'memories-' + currentTier + '-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 0);
+    AgentDB.toast('Exported ' + memories.length + ' memories', 'success');
+  }
+
+  async function batchDelete() {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    if (!confirm('Delete ' + ids.length + ' memor' + (ids.length === 1 ? 'y' : 'ies') +
+                 '? This cannot be undone.')) return;
+    const r = await AgentDB.api('POST', '/api/memories/batch/delete', {
+      ids: ids, memory_table: selectedTable()
+    });
+    if (r.status === 'ok') {
+      const deleted = (r.data && r.data.deleted) || ids.length;
+      AgentDB.toast('Deleted ' + deleted + ' memories', 'success');
+      V._selected.clear();
+      await loadMemories();
+    } else {
+      AgentDB.toast('Delete failed: ' + (r.error || 'unknown'), 'error');
+    }
   }
 
   function toggleExpand(row) {
@@ -213,10 +394,11 @@
   }
 
   async function deleteMemory(tier, id) {
-    if (!await AgentDB.confirm('Delete this memory? This cannot be undone.')) return;
+    if (!confirm('Delete this memory? This cannot be undone.')) return;
     const r = await AgentDB.api('DELETE', `/api/memories/${tier}/${id}`);
     if (r.status === 'ok') {
       AgentDB.toast('Memory deleted');
+      V._selected.delete(id);
       await loadMemories();
     } else {
       AgentDB.toast('Failed to delete memory');
