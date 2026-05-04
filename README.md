@@ -41,31 +41,33 @@ The defining architectural principle is **demand-constructed context**. AgentDB 
 
 ## Quick Start
 
+> The PyPI package is named **`swadb`**. The product is branded **AgentDB**. Same software.
+
 ### Prerequisites
 
-- Python 3.11+
-- Git
+- Python 3.9 or later
 
-### Setup
+### Install
+
+```bash
+pip install swadb              # core
+pip install swadb[ann]         # + hnswlib (HNSW index, recommended once memory count > ~10k)
+pip install swadb[encryption]  # + sqlcipher3 (at-rest DB encryption)
+pip install swadb[all]         # both extras
+```
+
+For development:
 
 ```bash
 git clone https://github.com/gsultani1/AgentDB.git
 cd AgentDB
-python -m venv venv
-
-# Windows
-.\venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-
-pip install -r requirements.txt
+pip install -e .[dev]   # editable install with pytest, build, twine
 ```
 
 ### Initialize the Database
 
 ```bash
-python -m swadb.cli init
+swadb init
 ```
 
 This creates `swadb.db` in the current directory with all tables, triggers, indexes, FTS5 virtual tables, default configuration values, and a default agent.
@@ -73,15 +75,15 @@ This creates `swadb.db` in the current directory with all tables, triggers, inde
 ### Verify
 
 ```bash
-python -m swadb.cli verify
-python -m swadb.cli stats
-python -m swadb.cli config list
+swadb verify
+swadb stats
+swadb config list
 ```
 
 ### Start the Server
 
 ```bash
-python -m swadb.cli serve
+swadb serve
 ```
 
 The server starts on `http://127.0.0.1:8420`. Open that URL in a browser for the management UI.
@@ -94,9 +96,11 @@ The server starts on `http://127.0.0.1:8420`. Open that URL in a browser for the
 ### Use a Custom Database Path
 
 ```bash
-python -m swadb.cli --db /path/to/my.db init
-python -m swadb.cli --db /path/to/my.db serve --port 9000
+swadb --db /path/to/my.db init
+swadb --db /path/to/my.db serve --port 9000
 ```
+
+> Both `swadb <command>` (the installed console script) and `python -m swadb.cli <command>` (module form) work and are equivalent.
 
 ---
 
@@ -261,10 +265,10 @@ AgentDB exposes its memory system as MCP tools via [FastMCP](https://github.com/
 **Run via CLI:**
 ```bash
 # stdio mode (for MCP clients like Claude Desktop)
-python -m swadb.cli mcp
+swadb mcp
 
 # SSE mode (auto-started with the HTTP server on port 8421)
-python -m swadb.cli serve
+swadb serve
 ```
 
 **Configuration** (in `meta_config`):
@@ -304,8 +308,8 @@ System configuration lives in the `meta_config` table inside the database. LLM p
 Set any value via CLI:
 
 ```bash
-python -m swadb.cli config set embedding_model all-MiniLM-L6-v2
-python -m swadb.cli config set consolidation_interval_seconds 600
+swadb config set embedding_model all-MiniLM-L6-v2
+swadb config set consolidation_interval_seconds 600
 ```
 
 Or via the Settings page in the management UI. LLM providers are managed through the provider management interface in Settings, not through flat config keys.
