@@ -17,7 +17,7 @@ import re
 import shutil
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from swadb import crud
@@ -247,7 +247,7 @@ def _process_memory_document(conn, meta, body):
         crud.update_long_term_memory(
             conn, existing_id,
             content=body, embedding=emb_blob,
-            category=category, last_validated=datetime.utcnow().isoformat(),
+            category=category, last_validated=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         )
         crud.create_audit_entry(
             conn, "long_term_memory", existing_id, "update", "markdown_import",
@@ -304,7 +304,7 @@ def _process_instruction_document(conn, meta, body):
         crud.update_long_term_memory(
             conn, existing_id,
             content=body, embedding=emb_blob,
-            category="directive", last_validated=datetime.utcnow().isoformat(),
+            category="directive", last_validated=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         )
         crud.create_audit_entry(
             conn, "long_term_memory", existing_id, "update", "markdown_import",
@@ -465,7 +465,7 @@ def _process_knowledge_document(conn, meta, body):
             crud.update_long_term_memory(
                 conn, existing_id,
                 content=chunk["content"], embedding=emb_blob,
-                last_validated=datetime.utcnow().isoformat(),
+                last_validated=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
             )
             mem_id = existing_id
         else:
@@ -702,7 +702,7 @@ class MarkdownFileWatcher:
 
     def _process_file(self, conn, md_file, processed_dir, failed_dir):
         """Process a single markdown file."""
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%d_%H%M%S")
         try:
             text = md_file.read_text(encoding="utf-8")
             result = process_markdown_document(conn, text, source_path=str(md_file))
@@ -785,7 +785,7 @@ def _resolve_entity_references(conn, entity_names, content_embedding):
             entity_ids.append(found[0]["id"])
             # Update last_seen
             crud.update_entity(conn, found[0]["id"],
-                               last_seen=datetime.utcnow().isoformat())
+                               last_seen=datetime.now(timezone.utc).replace(tzinfo=None).isoformat())
         else:
             emb = embedding_to_blob(generate_embedding(name))
             eid = crud.create_entity(conn, name, "concept", embedding=emb)

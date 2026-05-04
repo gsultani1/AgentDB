@@ -19,7 +19,7 @@ available, get_connection() falls back to plain SQLite and logs a warning.
 import os
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from swadb.schema import ALL_TABLES, ALL_TRIGGERS, CREATE_INDEXES, CREATE_FTS_TABLES, FTS_SYNC_TRIGGERS
@@ -483,7 +483,7 @@ def initialize_database(db_path):
 
 def _seed_default_config(cursor):
     """Insert default meta_config values if they don't already exist."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     for key, value in DEFAULT_CONFIG.items():
         cursor.execute(
             """
@@ -496,7 +496,7 @@ def _seed_default_config(cursor):
 
 def _seed_default_agent(cursor):
     """Insert the default agent if it doesn't already exist."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     cursor.execute(
         """
         INSERT OR IGNORE INTO agents (id, name, description, created_at)

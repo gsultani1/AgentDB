@@ -17,7 +17,7 @@ Provider adapters are pluggable Python modules with two methods:
 
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from swadb import crud
 from swadb.context import retrieve_context
@@ -621,7 +621,7 @@ def execute_chat_pipeline(conn, user_message, session_id=None, messages_history=
     if llm_config.get("provider_id"):
         try:
             conn.execute("UPDATE llm_providers SET last_used = ? WHERE id = ?",
-                         (datetime.utcnow().isoformat(), llm_config["provider_id"]))
+                         (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), llm_config["provider_id"]))
             conn.commit()
         except Exception:
             pass

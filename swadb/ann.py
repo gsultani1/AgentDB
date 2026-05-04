@@ -23,7 +23,7 @@ existing brute-force path in embeddings.semantic_search.
 
 import logging
 import pickle
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -110,7 +110,7 @@ class _TableIndex:
         self.id_to_label.clear()
 
         if n == 0:
-            self.last_built_at = datetime.utcnow().isoformat()
+            self.last_built_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
             self._capacity = capacity
             return
 
@@ -133,7 +133,7 @@ class _TableIndex:
         if valid_mask.any():
             self.index.add_items(vectors[valid_mask], labels[valid_mask])
 
-        self.last_built_at = datetime.utcnow().isoformat()
+        self.last_built_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         self._capacity = capacity
 
     def search(self, query: np.ndarray, top_k: int) -> List[Tuple[str, float]]:
@@ -249,7 +249,7 @@ class AnnIndexSet:
             per_table[table] = n
             rebuilt += 1
         return {"rebuilt": rebuilt, "per_table": per_table,
-                "timestamp": datetime.utcnow().isoformat()}
+                "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}
 
     def _build_one(self, conn, table: str) -> int:
         idx = self.indexes[table]

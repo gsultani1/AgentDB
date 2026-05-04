@@ -14,7 +14,7 @@ Supports:
 
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 from swadb import crud
 from swadb.markdown_parser import process_markdown_document
@@ -50,7 +50,7 @@ def sync_from_git(conn, config=None):
         "records_updated": 0,
         "errors": [],
         "commit_hash": "",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     }
 
     # Step 1: git pull --ff-only

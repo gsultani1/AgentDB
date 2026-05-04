@@ -27,7 +27,7 @@ import os
 import shlex
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -103,8 +103,8 @@ def stat_path(conn, agent_id: str, path: str) -> dict:
         "is_file": os.path.isfile(real),
         "is_dir": os.path.isdir(real),
         "size_bytes": st.st_size,
-        "modified_at": datetime.utcfromtimestamp(st.st_mtime).isoformat(),
-        "created_at": datetime.utcfromtimestamp(st.st_ctime).isoformat(),
+        "modified_at": datetime.fromtimestamp(st.st_mtime, timezone.utc).replace(tzinfo=None).isoformat(),
+        "created_at": datetime.fromtimestamp(st.st_ctime, timezone.utc).replace(tzinfo=None).isoformat(),
     }
 
 
@@ -127,7 +127,7 @@ def list_dir(conn, agent_id: str, path: str, max_entries: int = 1000) -> dict:
                     "is_dir": entry.is_dir(follow_symlinks=False),
                     "is_symlink": entry.is_symlink(),
                     "size_bytes": st.st_size,
-                    "modified_at": datetime.utcfromtimestamp(st.st_mtime).isoformat(),
+                    "modified_at": datetime.fromtimestamp(st.st_mtime, timezone.utc).replace(tzinfo=None).isoformat(),
                 })
             except OSError:
                 # Permission errors on a single entry shouldn't fail the listing

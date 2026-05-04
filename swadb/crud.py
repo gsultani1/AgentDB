@@ -8,7 +8,7 @@ via sqlite3.Row.
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _new_id():
@@ -18,7 +18,7 @@ def _new_id():
 
 def _now():
     """UTC timestamp in ISO format."""
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def _row_to_dict(row):
@@ -1351,7 +1351,7 @@ def get_cached_query_result(conn, query_hash, ttl_hours=24):
     # TTL check
     try:
         computed = datetime.fromisoformat(row["computed_at"])
-        age_hours = (datetime.utcnow() - computed).total_seconds() / 3600
+        age_hours = (datetime.now(timezone.utc).replace(tzinfo=None) - computed).total_seconds() / 3600
         if age_hours > ttl_hours:
             return None
     except (ValueError, TypeError):

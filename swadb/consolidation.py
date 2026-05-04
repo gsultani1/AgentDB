@@ -12,7 +12,7 @@ Implements PRD Section 8:
 import json
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from swadb import crud
 from swadb.embeddings import (
@@ -44,7 +44,7 @@ def run_consolidation_cycle(conn, config=None):
         "entries_decayed": 0,
         "entries_pruned": 0,
         "feedback_processed": 0,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     }
 
     # Phase 1: Short-to-midterm consolidation
@@ -106,7 +106,7 @@ def consolidate_short_to_mid(conn, config=None):
     entries = [dict(r) for r in rows]
 
     # Filter out expired entries
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     active_entries = []
     for entry in entries:
         created = datetime.fromisoformat(entry["timestamp"])
@@ -192,7 +192,7 @@ def boost_surviving_midterm(conn, config=None):
         "SELECT id, confidence, created_at FROM midterm_memory"
     ).fetchall()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     boosted = 0
 
     for row in rows:
@@ -329,7 +329,7 @@ def apply_decay_and_pruning(conn, config=None):
         "SELECT id, decay_weight, last_accessed FROM midterm_memory"
     ).fetchall()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     for row in rows:
         last_accessed = datetime.fromisoformat(row["last_accessed"])
         days_since = (now - last_accessed).total_seconds() / 86400

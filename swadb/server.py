@@ -12,7 +12,7 @@ import os
 import re
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -1120,7 +1120,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                             hist = []
                         # De-dupe consecutive duplicates
                         if not hist or hist[0].get("sql") != sql:
-                            hist.insert(0, {"sql": sql, "ts": datetime.utcnow().isoformat(),
+                            hist.insert(0, {"sql": sql, "ts": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
                                             "rows": len(rows)})
                             hist = hist[:50]
                             crud.set_config(conn, "db_query_history", json.dumps(hist))
@@ -1482,7 +1482,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     }
                     messages = [{"role": "user", "content": "Say 'hello' in one word."}]
                     response = adapter.call_provider(messages, "You are a test.", test_config)
-                    crud.update_llm_provider(conn, m["id"], last_test_at=datetime.utcnow().isoformat())
+                    crud.update_llm_provider(conn, m["id"], last_test_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat())
                     return _json_response(self, 200, data={"success": True, "response": response[:200]})
                 except Exception as e:
                     return _json_response(self, 200, data={"success": False, "error": str(e)})
@@ -1737,7 +1737,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         impl = dict(impls[0])
         crud.update_skill(conn, skill_id,
                           use_count=skill["use_count"] + 1,
-                          last_used=datetime.utcnow().isoformat())
+                          last_used=datetime.now(timezone.utc).replace(tzinfo=None).isoformat())
 
         lang = impl.get("language", "")
 
@@ -2764,7 +2764,7 @@ def _bootstrap_db_dependent_services(db_path):
     # Backfill any new DEFAULT_CONFIG keys into existing databases
     from swadb.database import DEFAULT_CONFIG
     import uuid as _uuid_mod
-    _now = datetime.utcnow().isoformat()
+    _now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     for _k, _v in DEFAULT_CONFIG.items():
         conn.execute(
             "INSERT OR IGNORE INTO meta_config (id, key, value, updated_at) VALUES (?, ?, ?, ?)",
@@ -2866,7 +2866,7 @@ def _start_warmups_and_workers(db_path):
                         try:
                             from swadb.mcp_server import run_mcp_server
                             _mcp_started = True
-                            _mcp_last_restart = datetime.utcnow().isoformat()
+                            _mcp_last_restart = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                             run_mcp_server(db_path, transport="sse", host="127.0.0.1", port=mcp_port_val)
                             break
                         except Exception as e:

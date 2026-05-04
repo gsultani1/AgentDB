@@ -17,7 +17,7 @@ Returns a unified context payload with labeled sections.
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from swadb import crud
 from swadb.embeddings import (
@@ -236,7 +236,7 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None,
     # Stage 5: Temporal weighting
     if temporal_enabled:
         strategies_used.append("temporal")
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         for mid, data in all_results.items():
             entry = data["entry"]
             ts_str = entry.get("timestamp") or entry.get("created_at") or entry.get("last_accessed")
@@ -342,7 +342,7 @@ def retrieve_context(conn, query, filters=None, config=None, agent_id=None,
                (id, timestamp, trigger_description, memory_ids, skill_ids,
                 relation_ids, goal_id, pinned_memory_ids, session_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (snapshot_id, datetime.utcnow().isoformat(),
+            (snapshot_id, datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
              f"retrieve_context: {query[:100]}",
              json.dumps(memory_ids_for_snapshot),
              json.dumps(skill_ids),

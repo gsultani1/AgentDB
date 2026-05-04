@@ -9,7 +9,7 @@ Provides:
 
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from swadb import crud
 from swadb.consolidation import run_consolidation_cycle
@@ -19,7 +19,7 @@ from swadb.sleep import run_sleep_cycle
 
 
 def _now():
-    return datetime.utcnow()
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _now_iso():

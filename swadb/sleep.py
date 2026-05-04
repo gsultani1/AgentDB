@@ -19,7 +19,7 @@ import json
 import os
 import threading
 import time as _time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from swadb import crud
 from swadb.consolidation import run_consolidation_cycle
@@ -51,7 +51,7 @@ def idle_since():
     """Return the timestamp when idle state began, or None if active."""
     if not _is_idle:
         return None
-    return datetime.utcfromtimestamp(_last_agent_api_call).isoformat()
+    return datetime.fromtimestamp(_last_agent_api_call, timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def start_idle_detector(conn_factory, threshold_seconds=300, check_interval=10):
@@ -118,7 +118,7 @@ def run_sleep_cycle(conn, config=None):
         config = _load_sleep_config(conn)
 
     results = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         "consolidation": {},
         "goals_checked": 0,
         "goal_notifications": 0,
@@ -201,7 +201,7 @@ def _monitor_goals(conn, config):
     """
     threshold = float(config.get("goal_similarity_threshold", "0.7"))
     window_hours = int(config.get("sleep_goal_monitor_window_hours", "24"))
-    cutoff = (datetime.utcnow() - timedelta(hours=window_hours)).isoformat()
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=window_hours)).isoformat()
 
     active_goals = conn.execute(
         "SELECT id, description, embedding FROM goals "
@@ -266,7 +266,7 @@ def _prune_graph(conn, config):
 
     min_weight = float(config.get("min_relation_weight", "0.05"))
     pruning_days = int(config.get("sleep_graph_pruning_threshold_days", "60"))
-    age_cutoff = (datetime.utcnow() - timedelta(days=pruning_days)).isoformat()
+    age_cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=pruning_days)).isoformat()
 
     to_delete = set()
 
@@ -339,7 +339,7 @@ def _pre_compute_query_cache(conn, config):
     top_n = int(config.get("sleep_pre_compute_top_n", "10"))
     ttl_hours = float(config.get("cache_ttl_hours", "24"))
     lookback_hours = int(config.get("sleep_pre_compute_lookback_hours", "168"))  # default 7d
-    cutoff = (datetime.utcnow() - timedelta(hours=lookback_hours)).isoformat()
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=lookback_hours)).isoformat()
 
     # Group by trigger_description, count occurrences. Only consider
     # snapshots whose description starts with the retrieve_context prefix.
@@ -359,7 +359,7 @@ def _pre_compute_query_cache(conn, config):
 
     # Drop stale cache rows beyond TTL up front so the cache doesn't grow forever
     try:
-        ttl_cutoff = (datetime.utcnow() - timedelta(hours=ttl_hours)).isoformat()
+        ttl_cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=ttl_hours)).isoformat()
         conn.execute("DELETE FROM query_cache WHERE computed_at < ?", (ttl_cutoff,))
         conn.commit()
     except Exception:
@@ -479,7 +479,7 @@ def _evaluate_alert_conditions(conn, config):
     if not isinstance(rules, list):
         return {"checked": 0, "fired": 0}
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     checked = 0
     fired = 0
 
@@ -542,7 +542,7 @@ def _check_entity_mention(conn, params):
     entity_name = params.get("entity_name", "")
     if not entity_name:
         return False
-    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)).isoformat()
     row = conn.execute(
         "SELECT COUNT(*) FROM short_term_memory WHERE timestamp > ? AND content LIKE ?",
         (cutoff, f"%{entity_name}%"),
@@ -581,7 +581,7 @@ def _check_content_keyword(conn, params):
     tier = params.get("tier", "short_term_memory")
     if not keywords:
         return False
-    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)).isoformat()
     ts_col = "timestamp" if tier == "short_term_memory" else "created_at"
     for kw in keywords:
         row = conn.execute(
@@ -597,7 +597,7 @@ def _check_goal_match(conn, params):
     """Check if any goal has recent high-similarity matches."""
     threshold = float(params.get("threshold", 0.8))
     # Reuse the goal monitoring logic
-    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)).isoformat()
     goals = conn.execute(
         "SELECT id, embedding FROM goals WHERE status = 'active' AND embedding IS NOT NULL"
     ).fetchall()

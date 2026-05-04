@@ -14,7 +14,7 @@ Scannable text types and their AgentDB file_type labels:
 
 import hashlib
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from swadb import crud
@@ -64,7 +64,7 @@ def scan_workspace(conn, workspace_id: str) -> dict:
     if not root.exists():
         return {"status": "error", "error": f"Root path does not exist: {root}"}
 
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     results = {
         "workspace_id": workspace_id,
         "root_path": str(root),
@@ -157,7 +157,7 @@ def _walk(root: Path):
             try:
                 stat = abs_path.stat()
                 size_bytes = stat.st_size
-                mtime = datetime.utcfromtimestamp(stat.st_mtime).isoformat()
+                mtime = datetime.fromtimestamp(stat.st_mtime, timezone.utc).replace(tzinfo=None).isoformat()
             except OSError:
                 continue
 
