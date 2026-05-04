@@ -80,7 +80,7 @@
             <h3>Quick Queries</h3>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
               <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT COUNT(*) as count, \\'short_term_memory\\' as tier FROM short_term_memory UNION ALL SELECT COUNT(*), \\'midterm_memory\\' FROM midterm_memory UNION ALL SELECT COUNT(*), \\'long_term_memory\\' FROM long_term_memory')">Memory Counts</button>
-              <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT canonical_name, entity_type, created_at FROM entities ORDER BY created_at DESC LIMIT 20')">Recent Entities</button>
+              <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT canonical_name, entity_type, first_seen, last_seen FROM entities ORDER BY first_seen DESC LIMIT 20')">Recent Entities</button>
               <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT name, action_type, status, last_run_at FROM scheduled_tasks ORDER BY last_run_at DESC')">Scheduled Tasks</button>
               <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT key, value FROM meta_config ORDER BY key')">All Config</button>
               <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT table_name, operation, COUNT(*) as count FROM audit_log GROUP BY table_name, operation ORDER BY count DESC LIMIT 20')">Audit Summary</button>
