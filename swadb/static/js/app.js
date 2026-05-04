@@ -32,6 +32,106 @@ AgentDB._ensureAgentKey = async function () {
   } catch (_) { /* key not set or network error — leave null */ }
 };
 
+/* ============================================================
+   Unlock screen — shown when the server is in locked mode (encrypted DB,
+   no passphrase yet). Any /api call that returns 423 also pops it.
+   ============================================================ */
+AgentDB._unlockShown = false;
+
+AgentDB.showUnlockScreen = function (errMsg) {
+  if (document.getElementById('unlock-overlay')) return; // already up
+  AgentDB._unlockShown = true;
+  var overlay = document.createElement('div');
+  overlay.id = 'unlock-overlay';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:10000;' +
+    'display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML =
+    '<div style="background:var(--bg2);border-radius:var(--radius);padding:28px 32px;' +
+    'min-width:380px;max-width:480px;box-shadow:0 8px 40px rgba(0,0,0,0.4)">' +
+    '<h2 style="margin:0 0 8px 0">🔒 Database Locked</h2>' +
+    '<p style="color:var(--text2);font-size:13px;margin:0 0 16px 0;line-height:1.5">' +
+    'Your database is encrypted. Enter the passphrase to unlock the server.' +
+    '</p>' +
+    (errMsg ? '<div style="background:rgba(239,68,68,0.12);border:1px solid var(--red);' +
+              'color:var(--red);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px">' +
+              AgentDB.esc(errMsg) + '</div>' : '') +
+    '<input type="password" id="unlock-passphrase" placeholder="Passphrase" autofocus ' +
+    'style="width:100%;font-size:14px;padding:8px 10px;margin-bottom:12px">' +
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn btn-primary" id="unlock-submit" style="flex:1">Unlock</button>' +
+    '</div>' +
+    '<details style="margin-top:14px;font-size:12px;color:var(--text2)">' +
+    '<summary style="cursor:pointer">Forgot the passphrase?</summary>' +
+    '<div style="padding:8px 0;line-height:1.5">' +
+    'Stop the server, then restore the plaintext backup:<br>' +
+    '<code style="font-size:11px;background:var(--bg3);padding:2px 4px;border-radius:3px">' +
+    'cp agentdb.db.preencrypt.bak agentdb.db</code><br>' +
+    'or recover from terminal:<br>' +
+    '<code style="font-size:11px;background:var(--bg3);padding:2px 4px;border-radius:3px">' +
+    'python -m swadb.cli --db agentdb.db encryption disable --passphrase YOURS</code>' +
+    '</div></details>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  var input = document.getElementById('unlock-passphrase');
+  var btn = document.getElementById('unlock-submit');
+  function attempt() {
+    var pp = input.value;
+    if (!pp) return;
+    btn.disabled = true;
+    btn.textContent = 'Unlocking…';
+    fetch('/api/encryption/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: pp }),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (res.ok && res.j.status === 'ok') {
+          // Success — reload the page to re-bootstrap the UI cleanly.
+          window.location.reload();
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Unlock';
+          input.value = '';
+          input.focus();
+          var msg = (res.j && res.j.error) || 'Unlock failed';
+          var existing = overlay.querySelector('[data-err]');
+          if (existing) existing.remove();
+          var err = document.createElement('div');
+          err.dataset.err = '1';
+          err.style.cssText = 'background:rgba(239,68,68,0.12);border:1px solid var(--red);' +
+            'color:var(--red);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px';
+          err.textContent = msg;
+          input.parentNode.insertBefore(err, input);
+        }
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        btn.textContent = 'Unlock';
+        AgentDB.toast('Network error: ' + e, 'error');
+      });
+  }
+  btn.addEventListener('click', attempt);
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') attempt();
+  });
+};
+
+AgentDB._checkLockState = function () {
+  // Probe the health endpoint. If the server is locked, /api/health returns
+  // {data: {locked: true}}.
+  return fetch('/api/health').then(function (r) {
+    return r.json();
+  }).then(function (j) {
+    if (j && j.data && j.data.locked) {
+      AgentDB.showUnlockScreen();
+      return true;
+    }
+    return false;
+  }).catch(function () { return false; });
+};
+
 AgentDB.api = async function api(method, path, body) {
   try {
     var opts = {
@@ -51,6 +151,11 @@ AgentDB.api = async function api(method, path, body) {
     }
     var res = await fetch(path, opts);
     var data = await res.json();
+    // 423 Locked → pop the unlock screen so the user has a way back in,
+    // unless this WAS the unlock call itself.
+    if (res.status === 423 && path !== '/api/encryption/unlock') {
+      AgentDB.showUnlockScreen(data && data.error);
+    }
     return data;
   } catch (err) {
     return { status: 'error', error: err.message || 'Network error' };
@@ -451,6 +556,12 @@ AgentDB.applyTheme = function (pref) {
 AgentDB.applyTheme(localStorage.getItem('theme-preference') || 'auto');
 
 document.addEventListener('DOMContentLoaded', function () {
+  // First thing: check if the server is locked. If yes, the unlock modal
+  // shows and the user can't do anything else until they enter the
+  // passphrase. (No await — we let the rest of the boot run; if locked, the
+  // overlay sits on top and intercepts.)
+  AgentDB._checkLockState();
+
   // Apply sidebar state
   if (AgentDB.state.sidebarCollapsed && window.innerWidth > 768) {
     document.body.classList.add('sidebar-collapsed');

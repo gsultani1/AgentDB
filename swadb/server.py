@@ -273,6 +273,24 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         if not path.startswith("/api/"):
             return self._serve_static(path.lstrip("/"))
 
+        # Lock gate: when DB is encrypted and we have no passphrase, only the
+        # bare minimum needed to unlock from the UI is allowed. We answer
+        # those endpoints inline because the regular routing would try to
+        # open a connection and fail.
+        if _locked:
+            if path not in _LOCK_ALLOWED_PATHS:
+                return _json_response(self, 423,
+                    error="Database is locked. POST /api/encryption/unlock with your passphrase.",
+                    data={"locked": True})
+            if path == "/api/encryption/status":
+                from swadb.database import encryption_status
+                status = encryption_status(_db_path)
+                status["locked"] = True
+                status["encryption_enabled_config"] = None  # unknown while locked
+                return _json_response(self, 200, data=status)
+            if path == "/api/health":
+                return _json_response(self, 200, data={"status": "locked", "locked": True})
+
         try:
             self._route_get(path, query_params)
         except Exception as e:
@@ -282,15 +300,82 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+        # Handle lock-allowed endpoints inline because _route_post opens a
+        # DB connection up front, which would fail in locked mode.
+        if path == "/api/encryption/unlock":
+            try:
+                body = _read_body(self)
+            except Exception as e:
+                return _json_response(self, 400, error=str(e))
+            return self._handle_unlock(body)
+        if _locked and path not in _LOCK_ALLOWED_PATHS:
+            return _json_response(self, 423,
+                error="Database is locked. POST /api/encryption/unlock with your passphrase.",
+                data={"locked": True})
         try:
             body = _read_body(self)
             self._route_post(path, body)
         except Exception as e:
             _json_response(self, 500, error=str(e))
 
+    def _handle_unlock(self, body):
+        """Validate the passphrase, store it in memory, run deferred bootstrap.
+
+        Works both when the server starts in locked mode (encrypted DB on
+        startup) and as a sanity check when already unlocked (returns 200).
+        """
+        global _locked
+        passphrase = (body or {}).get("passphrase", "").strip()
+        if not passphrase:
+            return _json_response(self, 400, error="passphrase is required")
+        from swadb.database import (
+            is_db_encrypted, set_runtime_passphrase, clear_runtime_passphrase,
+            get_connection,
+        )
+        # Server has been running unlocked already — accept the passphrase as
+        # a no-op so the UI can be idempotent.
+        if not is_db_encrypted(_db_path):
+            return _json_response(self, 200, data={
+                "unlocked": True,
+                "already_unlocked": True,
+                "message": "Database is not encrypted; nothing to unlock.",
+            })
+        # Try the passphrase by setting it and probing a small read.
+        set_runtime_passphrase(passphrase)
+        try:
+            test = get_connection(_db_path)
+            try:
+                test.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+            finally:
+                test.close()
+        except Exception as e:
+            clear_runtime_passphrase()
+            return _json_response(self, 401,
+                error="Wrong passphrase or database is corrupt: " + str(e))
+        # Right passphrase — run deferred bootstrap if we're starting locked
+        was_locked = _locked
+        if was_locked:
+            try:
+                _bootstrap_db_dependent_services(_db_path)
+            except Exception as e:
+                # Bootstrap failed AFTER unlock — keep passphrase set so user
+                # can retry, but stay locked so HTTP returns 423 again.
+                return _json_response(self, 500,
+                    error="Unlocked but post-unlock bootstrap failed: " + str(e))
+        _locked = False
+        return _json_response(self, 200, data={
+            "unlocked": True,
+            "bootstrap_ran": was_locked,
+            "message": "Database unlocked. Reloading the page is recommended.",
+        })
+
     def do_PUT(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+        if _locked and path not in _LOCK_ALLOWED_PATHS:
+            return _json_response(self, 423,
+                error="Database is locked. POST /api/encryption/unlock with your passphrase.",
+                data={"locked": True})
         try:
             body = _read_body(self)
             self._route_put(path, body)
@@ -300,6 +385,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+        if _locked and path not in _LOCK_ALLOWED_PATHS:
+            return _json_response(self, 423,
+                error="Database is locked. POST /api/encryption/unlock with your passphrase.",
+                data={"locked": True})
         try:
             self._route_delete(path)
         except Exception as e:
@@ -865,28 +954,34 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     return _json_response(self, 500, error=str(e))
             if path == "/api/encryption/enable":
-                # Convert a plaintext DB to encrypted. Requires server restart
-                # afterward so the in-process connection picks up the new file.
-                from swadb.database import encrypt_database
+                # Encrypt the live DB. After encryption we store the passphrase
+                # in the in-process runtime so subsequent connections succeed
+                # without env-var setup or a restart. The user only needs to
+                # re-enter the passphrase via the Unlock screen on a fresh
+                # process start.
+                from swadb.database import encrypt_database, set_runtime_passphrase
                 passphrase = body.get("passphrase")
                 if not passphrase:
                     return _json_response(self, 400, error="passphrase is required")
                 try:
-                    # Close all open connections in this thread before swapping
-                    # the file. The server is single-threaded for HTTP so this
-                    # is the active conn.
+                    # Close the request's existing conn — the rename inside
+                    # encrypt_database swaps the file under any open handle.
                     conn.close()
                     encrypt_database(_db_path, passphrase)
-                    crud_conn = get_connection(_db_path, passphrase=passphrase)
+                    # Store passphrase IN MEMORY so the running process keeps
+                    # working. Lost on process exit; that's intentional.
+                    set_runtime_passphrase(passphrase)
+                    crud_conn = get_connection(_db_path)
                     try:
                         crud.set_config(crud_conn, "encryption_enabled", "true")
                     finally:
                         crud_conn.close()
                     return _json_response(self, 200, data={
                         "encrypted": True,
-                        "restart_required": True,
-                        "message": "Database encrypted. Restart the server with "
-                                   "SWADB_PASSPHRASE set to continue using it.",
+                        "restart_required": False,
+                        "message": "Database encrypted. The session continues without "
+                                   "a restart. On next process start, you'll need to "
+                                   "re-enter the passphrase via the Unlock screen.",
                     })
                 except (ValueError, FileNotFoundError) as e:
                     return _json_response(self, 400, error=str(e))
@@ -895,13 +990,15 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     return _json_response(self, 500, error=str(e))
             if path == "/api/encryption/disable":
-                from swadb.database import decrypt_database
+                from swadb.database import decrypt_database, clear_runtime_passphrase
                 passphrase = body.get("passphrase")
                 if not passphrase:
                     return _json_response(self, 400, error="passphrase is required")
                 try:
                     conn.close()
                     decrypt_database(_db_path, passphrase)
+                    # DB is now plaintext — drop the runtime passphrase.
+                    clear_runtime_passphrase()
                     crud_conn = get_connection(_db_path)
                     try:
                         crud.set_config(crud_conn, "encryption_enabled", "false")
@@ -909,9 +1006,9 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                         crud_conn.close()
                     return _json_response(self, 200, data={
                         "decrypted": True,
-                        "restart_required": True,
-                        "message": "Database decrypted. Restart the server "
-                                   "(SWADB_PASSPHRASE no longer needed).",
+                        "restart_required": False,
+                        "message": "Database decrypted. The session continues without "
+                                   "a restart. On next start, no passphrase is needed.",
                     })
                 except (ValueError, FileNotFoundError) as e:
                     return _json_response(self, 400, error=str(e))
@@ -2600,18 +2697,18 @@ def _ensure_v15_schema(conn):
         print(f"v1.5 schema migration: created {len(created)} tables: {', '.join(created)}")
 
 
-def run_server(db_path, host="127.0.0.1", port=8420):
-    """
-    Start the AgentDB HTTP server.
+def _bootstrap_db_dependent_services(db_path):
+    """Run all the work that requires an open DB connection: schema migrations,
+    config backfill, embedding warm-up, ANN warm-up, file watcher, scheduler,
+    idle detector, and MCP server.
 
-    Args:
-        db_path: Path to the SQLite database file.
-        host: Bind address (default localhost).
-        port: Port number (default 8420).
+    Called either at server start (DB is plaintext or env var has the
+    passphrase) or after a successful /api/encryption/unlock when starting in
+    locked mode. Idempotent enough to run twice — schema migrations are
+    INSERT OR IGNORE, warmups overwrite singletons, threads check their own
+    started flags before starting again.
     """
-    global _db_path, _start_time, _file_watcher, _task_scheduler, _mcp_thread, _mcp_port, _mcp_started
-    _db_path = db_path
-    _start_time = time.time()
+    global _file_watcher, _task_scheduler, _mcp_thread, _mcp_port, _mcp_started
 
     conn = get_connection(db_path)
     ensure_scheduler_schema(conn)
@@ -2632,9 +2729,16 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     # Sync meta_config flat keys with the current default provider
     crud._sync_default_provider_to_config(conn)
     conn.close()
+    _start_warmups_and_workers(db_path)
 
-    # Pre-warm embedding model in background thread to eliminate cold-start delay
+
+def _start_warmups_and_workers(db_path):
+    """The warmup-thread + worker-thread bootstrap, factored so unlock can
+    re-run it. Each thread checks its own started flag so a second call after
+    unlock doesn't double-start anything."""
+    global _file_watcher, _task_scheduler, _mcp_thread, _mcp_port, _mcp_started
     import threading as _warmup_threading
+
     def _warmup_embeddings():
         try:
             from swadb.embeddings import get_model
@@ -2644,9 +2748,6 @@ def run_server(db_path, host="127.0.0.1", port=8420):
             print(f"Warning: Embedding warm-up failed: {e}")
     _warmup_threading.Thread(target=_warmup_embeddings, daemon=True).start()
 
-    # Build/load ANN indexes in background. Loading is fast (mmap of HNSW
-    # files); a full rebuild from scratch on first run can take a few seconds
-    # for large databases, so we do it off the request path.
     def _warmup_ann():
         try:
             from swadb import ann
@@ -2669,26 +2770,26 @@ def run_server(db_path, host="127.0.0.1", port=8420):
             print(f"Warning: ANN warm-up failed: {e}")
     _warmup_threading.Thread(target=_warmup_ann, daemon=True).start()
 
-    # Start markdown file watcher if enabled
-    try:
-        conn = get_connection(db_path)
-        watch_enabled = crud.get_config_value(conn, "markdown_watch_enabled", "false")
-        conn.close()
-        if watch_enabled == "true":
-            _file_watcher = MarkdownFileWatcher(db_path)
-            _file_watcher.start()
-            print("Markdown file watcher started")
-    except Exception as e:
-        print(f"Warning: Could not start file watcher: {e}")
+    if _file_watcher is None:
+        try:
+            conn = get_connection(db_path)
+            watch_enabled = crud.get_config_value(conn, "markdown_watch_enabled", "false")
+            conn.close()
+            if watch_enabled == "true":
+                _file_watcher = MarkdownFileWatcher(db_path)
+                _file_watcher.start()
+                print("Markdown file watcher started")
+        except Exception as e:
+            print(f"Warning: Could not start file watcher: {e}")
 
-    try:
-        _task_scheduler = ScheduledTaskRunner(db_path)
-        _task_scheduler.start()
-        print("Scheduled task runner started")
-    except Exception as e:
-        print(f"Warning: Could not start scheduled task runner: {e}")
+    if _task_scheduler is None:
+        try:
+            _task_scheduler = ScheduledTaskRunner(db_path)
+            _task_scheduler.start()
+            print("Scheduled task runner started")
+        except Exception as e:
+            print(f"Warning: Could not start scheduled task runner: {e}")
 
-    # Start idle detector for automatic sleep-time consolidation
     try:
         from swadb.sleep import start_idle_detector
         conn = get_connection(db_path)
@@ -2699,56 +2800,103 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     except Exception as e:
         print(f"Warning: Could not start idle detector: {e}")
 
-    # Start MCP server with crash recovery (PRD 16.5)
-    try:
-        import threading as _threading
-        conn = get_connection(db_path)
-        mcp_enabled = crud.get_config_value(conn, "mcp_enabled", "true")
-        mcp_port_val = int(crud.get_config_value(conn, "mcp_port", "8421") or "8421")
-        conn.close()
-        if mcp_enabled == "true":
-            _mcp_port = mcp_port_val
+    if not _mcp_started:
+        try:
+            import threading as _threading
+            conn = get_connection(db_path)
+            mcp_enabled = crud.get_config_value(conn, "mcp_enabled", "true")
+            mcp_port_val = int(crud.get_config_value(conn, "mcp_port", "8421") or "8421")
+            conn.close()
+            if mcp_enabled == "true":
+                _mcp_port = mcp_port_val
 
-            def _mcp_resilient_wrapper():
-                """Wraps the MCP server with auto-restart on crash."""
-                global _mcp_failure_count, _mcp_last_restart, _mcp_started
-                max_failures = 5
-                failure_window = 60  # seconds
-                first_failure_time = None
+                def _mcp_resilient_wrapper():
+                    """Wraps the MCP server with auto-restart on crash."""
+                    global _mcp_failure_count, _mcp_last_restart, _mcp_started
+                    max_failures = 5
+                    failure_window = 60  # seconds
+                    first_failure_time = None
 
-                while True:
-                    try:
-                        from swadb.mcp_server import run_mcp_server
-                        _mcp_started = True
-                        _mcp_last_restart = datetime.utcnow().isoformat()
-                        run_mcp_server(db_path, transport="sse", host="127.0.0.1", port=mcp_port_val)
-                        break  # Clean exit
-                    except Exception as e:
-                        _mcp_failure_count += 1
-                        now = time.time()
-                        if first_failure_time is None:
-                            first_failure_time = now
-                        # Reset failure window if enough time has passed
-                        if now - first_failure_time > failure_window:
-                            _mcp_failure_count = 1
-                            first_failure_time = now
-                        if _mcp_failure_count >= max_failures:
-                            print(f"CRITICAL: MCP server failed {max_failures} times in {failure_window}s, stopping restart attempts: {e}")
-                            _mcp_started = False
+                    while True:
+                        try:
+                            from swadb.mcp_server import run_mcp_server
+                            _mcp_started = True
+                            _mcp_last_restart = datetime.utcnow().isoformat()
+                            run_mcp_server(db_path, transport="sse", host="127.0.0.1", port=mcp_port_val)
                             break
-                        print(f"Warning: MCP server crashed ({_mcp_failure_count}/{max_failures}), restarting in 2s: {e}")
-                        time.sleep(2)
+                        except Exception as e:
+                            _mcp_failure_count += 1
+                            now = time.time()
+                            if first_failure_time is None:
+                                first_failure_time = now
+                            if now - first_failure_time > failure_window:
+                                _mcp_failure_count = 1
+                                first_failure_time = now
+                            if _mcp_failure_count >= max_failures:
+                                print(f"CRITICAL: MCP server failed {max_failures} times in {failure_window}s, stopping restart attempts: {e}")
+                                _mcp_started = False
+                                break
+                            print(f"Warning: MCP server crashed ({_mcp_failure_count}/{max_failures}), restarting in 2s: {e}")
+                            time.sleep(2)
 
-            _mcp_thread = _threading.Thread(
-                target=_mcp_resilient_wrapper,
-                daemon=True,
-                name="swadb-mcp",
-            )
-            _mcp_thread.start()
-            _mcp_started = True
-            print(f"MCP server started (SSE) on port {mcp_port_val} with crash recovery")
-    except Exception as e:
-        print(f"Warning: Could not start MCP server: {e}")
+                _mcp_thread = _threading.Thread(
+                    target=_mcp_resilient_wrapper,
+                    daemon=True,
+                    name="swadb-mcp",
+                )
+                _mcp_thread.start()
+                _mcp_started = True
+                print(f"MCP server started (SSE) on port {mcp_port_val} with crash recovery")
+        except Exception as e:
+            print(f"Warning: Could not start MCP server: {e}")
+
+
+# Lock state — set when an encrypted DB is detected at startup with no
+# passphrase available. While locked, the API rejects everything except the
+# unlock-related endpoints, and the UI shows a passphrase-entry screen.
+_locked = False
+
+# Endpoints permitted while locked. Anything else returns 423.
+_LOCK_ALLOWED_PATHS = frozenset({
+    "/api/encryption/unlock",   # the way back in (POST)
+    "/api/encryption/status",   # so the UI can check db_encrypted state
+    "/api/health",              # uptime probes for tooling
+})
+
+
+def is_locked():
+    return _locked
+
+
+def run_server(db_path, host="127.0.0.1", port=8420):
+    """
+    Start the AgentDB HTTP server.
+
+    If the DB on disk is encrypted and no passphrase is available (env or
+    runtime), the server starts in LOCKED mode: only `/api/encryption/unlock`,
+    `/api/encryption/status`, and `/api/health` respond; everything else
+    returns 423 Locked. The frontend detects this and shows an unlock screen.
+    Once the user submits the right passphrase, deferred bootstrap runs and
+    the app becomes fully usable. No env var or restart required.
+    """
+    global _db_path, _start_time, _locked
+    _db_path = db_path
+    _start_time = time.time()
+
+    from swadb.database import is_db_encrypted, _read_passphrase_env
+    db_is_encrypted = is_db_encrypted(db_path)
+    have_passphrase = _read_passphrase_env() is not None
+
+    if db_is_encrypted and not have_passphrase:
+        _locked = True
+        print("=" * 60)
+        print("DATABASE IS LOCKED")
+        print(f"  {db_path} is encrypted but no passphrase is available.")
+        print("  Open the UI and enter the passphrase to unlock the server.")
+        print("  Or set SWADB_PASSPHRASE in the environment and restart.")
+        print("=" * 60)
+    else:
+        _bootstrap_db_dependent_services(db_path)
 
     server = HTTPServer((host, port), AgentDBHandler)
     print(f"AgentDB server running at http://{host}:{port}")

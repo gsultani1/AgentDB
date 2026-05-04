@@ -127,14 +127,39 @@ DEFAULT_CONFIG = {
 }
 
 
+# In-process passphrase, set after the user types it via the UI's Unlock or
+# Encrypt forms. Lives in memory only — never written to disk, never logged.
+# Lost on process exit; user re-enters on next start via the Unlock screen.
+_RUNTIME_PASSPHRASE = None
+
+
+def set_runtime_passphrase(passphrase):
+    """Store the active encryption passphrase in memory for the running process."""
+    global _RUNTIME_PASSPHRASE
+    _RUNTIME_PASSPHRASE = passphrase if passphrase else None
+
+
+def get_runtime_passphrase():
+    return _RUNTIME_PASSPHRASE
+
+
+def clear_runtime_passphrase():
+    global _RUNTIME_PASSPHRASE
+    _RUNTIME_PASSPHRASE = None
+
+
 def _read_passphrase_env():
     """
-    Read the encryption passphrase from the environment.
+    Read the encryption passphrase from (in priority order):
+      1. The in-memory runtime store (set via UI Unlock/Encrypt actions)
+      2. SWADB_PASSPHRASE env var
+      3. AGENTDB_PASSPHRASE env var (deprecated, prints one-shot warning)
 
-    SWADB_PASSPHRASE is canonical. AGENTDB_PASSPHRASE is honored as a
-    deprecated fallback so existing encrypted databases continue to open
-    after the package rename; a one-shot warning is printed in that case.
+    Returns None if no passphrase is available, in which case get_connection
+    raises RuntimeError on encrypted DBs and the server enters locked mode.
     """
+    if _RUNTIME_PASSPHRASE:
+        return _RUNTIME_PASSPHRASE
     val = os.environ.get("SWADB_PASSPHRASE")
     if val:
         return val

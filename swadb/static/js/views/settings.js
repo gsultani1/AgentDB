@@ -682,13 +682,12 @@
       // LOUD warning — clicking through this without setting the env var is
       // the #1 way to lock yourself out, so the warning is in red and the
       // confirm dialog requires re-entering the passphrase.
-      html += '<div style="background:rgba(239,68,68,0.1);border:1px solid var(--red);color:var(--red);padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:10px">';
-      html += '<div style="font-weight:600;margin-bottom:4px">⚠ Read before you click Encrypt</div>';
+      html += '<div style="background:rgba(245,158,11,0.1);border:1px solid var(--yellow);color:var(--yellow);padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:10px">';
+      html += '<div style="font-weight:600;margin-bottom:4px">Before you click Encrypt</div>';
       html += '<ul style="margin:0;padding-left:18px;color:var(--text)">';
-      html += '<li>The plaintext DB will be saved as <code>agentdb.db.preencrypt.bak</code> next to the active DB. Keep that file until you\'ve confirmed the encrypted DB works.</li>';
-      html += '<li>You <b>must</b> set <code>SWADB_PASSPHRASE</code> in your environment before restarting the server, or you will be locked out of the UI on next launch.</li>';
-      html += '<li>If you do get locked out, run <code>python -m swadb.cli encryption disable --passphrase YOURS</code> from a terminal — the server doesn\'t need to be running.</li>';
-      html += '<li>If you forget the passphrase entirely, restore <code>.preencrypt.bak</code> as <code>agentdb.db</code>.</li>';
+      html += '<li>You will need this passphrase <b>every time the server starts</b>. The Unlock screen will ask for it.</li>';
+      html += '<li>The current plaintext DB is saved as <code>agentdb.db.preencrypt.bak</code> next to the active DB. Keep that file as a safety net.</li>';
+      html += '<li>If you forget the passphrase, restore <code>.preencrypt.bak</code> as <code>agentdb.db</code> (server stopped) or run <code>python -m swadb.cli --db agentdb.db encryption disable --passphrase YOURS</code> from a terminal.</li>';
       html += '</ul></div>';
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
       html += '<input type="password" id="enc-new-pass" placeholder="New passphrase" style="width:100%">';
@@ -723,14 +722,13 @@
     var p2 = document.getElementById('enc-new-pass-confirm').value;
     if (!p) { AgentDB.toast('Passphrase is required', 'error'); return; }
     if (p !== p2) { AgentDB.toast('Passphrases do not match', 'error'); return; }
-    // Two-step confirm. The retype is deliberately friction-y because losing
-    // the passphrase locks you out of the UI on next start.
+    // Re-type confirm. Forgetting the passphrase still costs you data, even
+    // though we no longer require restart-time env-var setup.
     var typed = prompt(
       'You are about to encrypt the database.\n\n' +
-      'Before continuing, copy the passphrase somewhere safe AND set the\n' +
-      'SWADB_PASSPHRASE environment variable to it BEFORE restarting the\n' +
-      'server. If you forget, run:\n\n' +
-      '  python -m swadb.cli encryption disable --passphrase YOURS\n\n' +
+      'You will need this passphrase EVERY TIME the server starts (entered\n' +
+      'on the Unlock screen). Copy it somewhere safe before continuing.\n\n' +
+      'A plaintext backup will be saved as agentdb.db.preencrypt.bak.\n\n' +
       'Re-type the passphrase to proceed:'
     );
     if (typed !== p) {
@@ -740,18 +738,10 @@
     AgentDB.toast('Encrypting database…', 'info');
     var r = await AgentDB.api('POST', '/api/encryption/enable', { passphrase: p });
     if (r.status === 'ok') {
-      AgentDB.toast('Encrypted. Set SWADB_PASSPHRASE and restart now.', 'success');
-      // Persistent post-action banner with copy-paste recovery commands.
-      alert(
-        'Database encrypted successfully.\n\n' +
-        '1. Set SWADB_PASSPHRASE in your shell:\n' +
-        '   Windows PowerShell: $env:SWADB_PASSPHRASE = "YOURS"\n' +
-        '   bash / zsh:        export SWADB_PASSPHRASE="YOURS"\n\n' +
-        '2. Restart the server.\n\n' +
-        '3. The plaintext backup is at agentdb.db.preencrypt.bak — keep it\n' +
-        '   until you\'ve confirmed the encrypted DB opens correctly.\n\n' +
-        '4. To roll back without restarting, run:\n' +
-        '   python -m swadb.cli encryption disable --passphrase YOURS'
+      AgentDB.toast(
+        'Database encrypted. Your session continues seamlessly. ' +
+        'On next server start, enter this passphrase on the Unlock screen.',
+        'success', 6000
       );
       V.loadEncryption();
     } else {
