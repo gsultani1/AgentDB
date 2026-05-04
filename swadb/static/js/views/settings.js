@@ -80,7 +80,15 @@
     html += '<div id="add-provider-form" style="display:none;margin-top:12px;padding:16px;background:var(--bg3);border-radius:var(--radius)">';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
     html += '<div><label style="font-size:12px;color:var(--text2)">Name</label><input type="text" id="prov-name" placeholder="My Claude" style="width:100%"></div>';
-    html += '<div><label style="font-size:12px;color:var(--text2)">Type</label><select id="prov-type" style="width:100%"><option value="claude">Claude</option><option value="openai">OpenAI</option><option value="local">Local</option></select></div>';
+    html += '<div><label style="font-size:12px;color:var(--text2)">Type</label><select id="prov-type" style="width:100%">' +
+            '<option value="claude">Claude (Anthropic)</option>' +
+            '<option value="openai">OpenAI</option>' +
+            '<option value="ollama">Ollama (local)</option>' +
+            '<option value="llamacpp">llama.cpp (local)</option>' +
+            '<option value="lmstudio">LM Studio (local)</option>' +
+            '<option value="local">Generic local (OpenAI-compat)</option>' +
+            '<option value="custom">Custom OpenAI-compat endpoint</option>' +
+            '</select></div>';
     html += '<div><label style="font-size:12px;color:var(--text2)">Model</label><input type="text" id="prov-model" placeholder="claude-sonnet-4-20250514" style="width:100%"></div>';
     html += '<div><label style="font-size:12px;color:var(--text2)">API Key</label><input type="password" id="prov-key" placeholder="sk-..." style="width:100%"></div>';
     html += '<div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text2)">Endpoint (optional)</label><input type="text" id="prov-endpoint" placeholder="Leave blank for default; Ollama: http://localhost:11434" style="width:100%"></div>';
