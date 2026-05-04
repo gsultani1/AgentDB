@@ -66,10 +66,10 @@ AgentDB.showUnlockScreen = function (errMsg) {
     '<div style="padding:8px 0;line-height:1.5">' +
     'Stop the server, then restore the plaintext backup:<br>' +
     '<code style="font-size:11px;background:var(--bg3);padding:2px 4px;border-radius:3px">' +
-    'cp agentdb.db.preencrypt.bak agentdb.db</code><br>' +
+    'cp swadb.db.preencrypt.bak swadb.db</code><br>' +
     'or recover from terminal:<br>' +
     '<code style="font-size:11px;background:var(--bg3);padding:2px 4px;border-radius:3px">' +
-    'python -m swadb.cli --db agentdb.db encryption disable --passphrase YOURS</code>' +
+    'swadb --db swadb.db encryption disable --passphrase YOURS</code>' +
     '</div></details>' +
     '</div>';
   document.body.appendChild(overlay);

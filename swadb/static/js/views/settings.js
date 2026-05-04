@@ -694,8 +694,8 @@
       html += '<div style="font-weight:600;margin-bottom:4px">Before you click Encrypt</div>';
       html += '<ul style="margin:0;padding-left:18px;color:var(--text)">';
       html += '<li>You will need this passphrase <b>every time the server starts</b>. The Unlock screen will ask for it.</li>';
-      html += '<li>The current plaintext DB is saved as <code>agentdb.db.preencrypt.bak</code> next to the active DB. Keep that file as a safety net.</li>';
-      html += '<li>If you forget the passphrase, restore <code>.preencrypt.bak</code> as <code>agentdb.db</code> (server stopped) or run <code>python -m swadb.cli --db agentdb.db encryption disable --passphrase YOURS</code> from a terminal.</li>';
+      html += '<li>The current plaintext DB is saved as <code>swadb.db.preencrypt.bak</code> next to the active DB. Keep that file as a safety net.</li>';
+      html += '<li>If you forget the passphrase, restore <code>.preencrypt.bak</code> as <code>swadb.db</code> (server stopped) or run <code>swadb --db swadb.db encryption disable --passphrase YOURS</code> from a terminal.</li>';
       html += '</ul></div>';
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
       html += '<input type="password" id="enc-new-pass" placeholder="New passphrase" style="width:100%">';
@@ -736,7 +736,7 @@
       'You are about to encrypt the database.\n\n' +
       'You will need this passphrase EVERY TIME the server starts (entered\n' +
       'on the Unlock screen). Copy it somewhere safe before continuing.\n\n' +
-      'A plaintext backup will be saved as agentdb.db.preencrypt.bak.\n\n' +
+      'A plaintext backup will be saved as swadb.db.preencrypt.bak.\n\n' +
       'Re-type the passphrase to proceed:'
     );
     if (typed !== p) {
