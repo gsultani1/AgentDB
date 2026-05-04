@@ -168,6 +168,27 @@ AgentDB/
 
 ---
 
+## Running Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests/ -v
+```
+
+Fast unit + integration suite (~45s on a laptop). The default config skips
+the embedding-model warmup test (`-m "not slow"`) and auto-skips encryption
+tests if `sqlcipher3` isn't installed. To run the full suite including those:
+
+```bash
+python -m pytest tests/ -v -m ""
+```
+
+The suite is organized to catch the "broken handler shape" bug class — every
+CRUD function with a non-trivial signature has a dedicated test in
+`tests/test_crud_signatures.py`. Add one when you ship a new endpoint.
+
+---
+
 ## CLI Reference
 
 All commands accept `--db <path>` to specify the database file. Default is `swadb.db`.
