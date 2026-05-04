@@ -1940,7 +1940,24 @@ class AgentDBHandler(BaseHTTPRequestHandler):
         stats["active_goals"] = conn.execute(
             "SELECT COUNT(*) FROM goals WHERE status = 'active'"
         ).fetchone()[0]
-        stats["llm_provider"] = crud.get_config_value(conn, "llm_provider", "")
+        # Pull the default provider's display name from the canonical table.
+        # Falls back to first is_active row, or "" when no providers exist.
+        try:
+            row = conn.execute(
+                "SELECT name, provider_type FROM llm_providers "
+                "WHERE is_default = 1 LIMIT 1"
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT name, provider_type FROM llm_providers "
+                    "WHERE is_active = 1 ORDER BY created_at LIMIT 1"
+                ).fetchone()
+            if row:
+                stats["llm_provider"] = (row["name"] or row["provider_type"] or "")
+            else:
+                stats["llm_provider"] = ""
+        except Exception:
+            stats["llm_provider"] = ""
         stats["embedding_model"] = crud.get_config_value(conn, "embedding_model", "")
         stats["markdown_watch_enabled"] = crud.get_config_value(conn, "markdown_watch_enabled", "false")
         stats["agents"] = conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]

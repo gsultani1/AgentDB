@@ -1590,27 +1590,38 @@ def get_default_llm_provider(conn):
     return dict(row) if row else None
 
 def _sync_default_provider_to_config(conn):
-    """Keep meta_config flat keys in sync with the current default provider."""
+    """
+    Backward-compat: keep meta_config flat keys (llm_provider, llm_api_key,
+    llm_model, llm_endpoint) in sync with the current default provider.
+
+    DEPRECATED. New databases don't seed these keys; this function only
+    UPDATES rows that already exist (old DBs from before the providers
+    refactor). Reads should go through middleware.get_llm_config which
+    resolves from the llm_providers table directly.
+    """
     row = conn.execute(
         "SELECT provider_type, api_key, model, endpoint FROM llm_providers WHERE is_default = 1 LIMIT 1"
     ).fetchone()
-    if row:
-        row = dict(row) if hasattr(row, 'keys') else {
-            'provider_type': row[0], 'api_key': row[1], 'model': row[2], 'endpoint': row[3]
-        }
-        now = _now()
-        for cfg_key, prov_key in [
-            ("llm_provider", "provider_type"),
-            ("llm_api_key", "api_key"),
-            ("llm_model", "model"),
-            ("llm_endpoint", "endpoint"),
-        ]:
-            val = row.get(prov_key, "") or ""
-            conn.execute(
-                "UPDATE meta_config SET value = ?, updated_at = ? WHERE key = ?",
-                (val, now, cfg_key),
-            )
-        conn.commit()
+    if not row:
+        return
+    row = dict(row) if hasattr(row, 'keys') else {
+        'provider_type': row[0], 'api_key': row[1], 'model': row[2], 'endpoint': row[3]
+    }
+    now = _now()
+    for cfg_key, prov_key in [
+        ("llm_provider", "provider_type"),
+        ("llm_api_key", "api_key"),
+        ("llm_model", "model"),
+        ("llm_endpoint", "endpoint"),
+    ]:
+        val = row.get(prov_key, "") or ""
+        # UPDATE-only; never INSERT. New DBs won't have these rows and
+        # we don't want to recreate them.
+        conn.execute(
+            "UPDATE meta_config SET value = ?, updated_at = ? WHERE key = ?",
+            (val, now, cfg_key),
+        )
+    conn.commit()
 
 
 def create_llm_provider(conn, name, provider_type, model, api_key='', endpoint='', is_default=False):

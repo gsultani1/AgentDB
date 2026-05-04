@@ -58,10 +58,11 @@ DEFAULT_CONFIG = {
     "skill_similarity_threshold": "0.6",
     "orphan_handling_mode": "flag",
     "staleness_threshold_days": "90",
-    "llm_provider": "claude",
-    "llm_api_key": "",
-    "llm_model": "claude-sonnet-4-20250514",
-    "llm_endpoint": "",
+    # NOTE: the flat llm_provider / llm_api_key / llm_model / llm_endpoint
+    # keys are DEPRECATED. The `llm_providers` table is the single source
+    # of truth (see middleware.get_llm_config). Old DBs that already have
+    # these keys will continue to receive write-only sync from the default
+    # provider; new DBs do not seed them.
     "agent_api_key": "",
     "operator_api_key": "",
     "max_context_tokens": "4000",

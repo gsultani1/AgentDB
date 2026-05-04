@@ -487,13 +487,21 @@ def get_adapter(provider_name):
 
 def get_llm_config(conn, provider_id=None, agent_id=None):
     """
-    Load LLM config using v1.5 provider resolution priority chain:
-    1. Explicit provider_id in request
-    2. Agent's default_provider_id
-    3. active_provider_id in meta_config
-    4. First is_default=1 row in llm_providers
-    5. First is_active=1 row in llm_providers
-    6. Flat meta_config keys (legacy fallback)
+    Load LLM config from the `llm_providers` table — the single source of
+    truth for LLM configuration. Resolution priority chain:
+
+      1. Explicit provider_id passed in the request
+      2. Agent's default_provider_id
+      3. active_provider_id pointer stored in meta_config
+      4. First is_default=1 row in llm_providers
+      5. First is_active=1 row in llm_providers
+
+    DEPRECATED: prior versions had a 6th step that read flat
+    `meta_config.llm_provider/llm_api_key/llm_model/llm_endpoint` keys as a
+    final fallback. Those keys are now write-only (synced from the default
+    provider for back-compat with any external readers); they are NOT read
+    here. If no provider can be resolved we return {} and let the caller
+    surface "no LLM configured."
     """
     def _provider_to_config(prov):
         prov = dict(prov) if not isinstance(prov, dict) else prov
@@ -551,14 +559,10 @@ def get_llm_config(conn, provider_id=None, agent_id=None):
     except Exception:
         pass
 
-    # 6. Flat meta_config keys (legacy fallback)
-    keys = ["llm_provider", "llm_api_key", "llm_model", "llm_endpoint"]
-    config = {}
-    for key in keys:
-        val = crud.get_config_value(conn, key)
-        if val is not None:
-            config[key] = val
-    return config
+    # No provider resolved. Caller should treat this as "no LLM configured"
+    # rather than fall back to flat meta_config keys (deprecated path
+    # removed in the v1.6 §16.7 / v1.7 §7 cleanup).
+    return {}
 
 
 def get_identity_memories(conn, agent_id=None):
