@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-12
+
+Embedded-usage ergonomics. Pure addition — no behavior change for CLI,
+server, or MCP users.
+
+### Added
+- **Top-level re-exports for embedded Python usage**: `initialize_database`,
+  `get_connection`, `verify_schema`, and the `crud` submodule are now
+  importable directly from `swadb`. Previously only the version metadata
+  was exposed, so callers had to know the internal module layout
+  (`from swadb.database import initialize_database`). The internal
+  layout is unchanged and remains importable for advanced use.
+- **`swadb/__main__.py`** so `python -m swadb` invokes the CLI (previously
+  only `python -m swadb.cli` worked). Matters most when the Python
+  Scripts directory isn't on PATH and the `swadb` console script can't
+  be found as a bare command.
+
 ## [0.1.0] — 2026-05-04
 
 First public release on PyPI. The package is named `swadb`; the product
@@ -164,5 +181,6 @@ is branded **AgentDB**. Same software.
   grant, output truncated at 5 MB, all calls logged to
   `shell_command_log`.
 
-[Unreleased]: https://github.com/gsultani1/AgentDB/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/gsultani1/AgentDB/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/gsultani1/AgentDB/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/gsultani1/AgentDB/releases/tag/v0.1.0

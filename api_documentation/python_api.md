@@ -7,9 +7,13 @@ the surface.
 
 ## What's stable
 
-The "supported" Python API for 0.1.0 is fairly narrow:
+The "supported" Python API is fairly narrow:
 
-- `swadb.database` — connection management
+- **Top-level convenience imports** (added in 0.1.1):
+  `swadb.initialize_database`, `swadb.get_connection`,
+  `swadb.verify_schema`, and the `swadb.crud` submodule. These are
+  re-exports of the names below — use whichever form reads better.
+- `swadb.database` — connection management, encryption helpers
 - `swadb.crud` — synchronous CRUD over every table
 - `swadb.context.retrieve_context` — the full retrieval pipeline
 - `swadb.consolidation.run_consolidation_cycle` — promotion/decay/merge
@@ -27,8 +31,7 @@ versions.
 ## Quick start: open a DB and read memories
 
 ```python
-from swadb.database import initialize_database, get_connection
-from swadb import crud
+from swadb import initialize_database, get_connection, crud
 
 # Fresh DB
 conn = initialize_database("./swadb.db")
