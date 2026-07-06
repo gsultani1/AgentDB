@@ -95,6 +95,49 @@ To skip embedding generation entirely for a single insert:
 swadb memory add "content" --no-embedding
 ```
 
+## Embedding model fails to load even though it's cached
+
+**Symptom** — the model was downloaded previously (first run worked, or
+the cache directory exists), but `swadb serve` logs:
+
+```
+Warning: Embedding warm-up failed: sentence-transformers/all-MiniLM-L6-v2 is not a local folder and is not a valid model identifier listed on 'https://huggingface.co/models'
+```
+
+and every endpoint that generates an embedding (`POST /api/entities`,
+`POST /api/memories/{tier}`, search, ...) returns a 500 with the same
+message. The "not a valid model identifier" wording makes it look like
+the model name is wrong; it isn't.
+
+**Cause** — on every load, huggingface_hub phones home to check for a
+newer model revision. When that check fails — no network, a firewall,
+a proxy, or huggingface.co being down — the library reports the model
+as *nonexistent* instead of falling back to the perfectly good local
+cache. The cached copy is fine; only the freshness check failed.
+
+**Fix** — tell the Hugging Face libraries to use the cache without
+touching the network:
+
+```bash
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+swadb serve
+```
+
+PowerShell equivalent:
+
+```powershell
+$env:HF_HUB_OFFLINE = '1'; $env:TRANSFORMERS_OFFLINE = '1'; swadb serve
+```
+
+Confirm the fix took: the serve log should print
+`Embedding model pre-warmed` instead of the warm-up warning.
+
+These vars are safe to set permanently on any machine where the model
+is already cached — they only forbid network lookups, and loading fails
+fast with a clear "offline mode" error if you ever point at a model
+that isn't cached. (swadb's own test suite sets them automatically when
+it detects the cached model, for exactly this reason.)
+
 ## `sqlcipher3` will not install (`swadb[encryption]`)
 
 **Symptom** — `pip install swadb[encryption]` fails building a wheel,

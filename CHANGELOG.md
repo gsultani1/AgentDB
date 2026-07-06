@@ -42,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registry, attachments/uploads, autonomous tasks, channels,
   contradictions/feedback/audit/views, markdown + import, status probes,
   skill-execution reads) and the suite-wide DELETE convention.
+- **`troubleshooting.md`: new entry for the cached-model offline
+  failure** — huggingface_hub's revision check reports a cached
+  embedding model as "not a valid model identifier" when the network is
+  unreachable; fix is `HF_HUB_OFFLINE=1` + `TRANSFORMERS_OFFLINE=1`.
+  Found by live-driving the server on a machine without hub access.
 
 ## [0.1.2] — 2026-07-05
 
