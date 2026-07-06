@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`GET /api/health` 404'd while unlocked**: the route only existed as an
+  inline answer in locked mode. It is now a real route in both states —
+  unauthenticated, answered without touching the DB, returning
+  `{status: "ok", locked: false, uptime_seconds}`.
+- **`GET /api/memories/pinned` returned 400 "Invalid tier: pinned"**: the
+  `/api/memories/{tier}` pattern matched before the literal path, so the
+  pinned-list handler was dead code. Literal now checked first.
+- **`GET /api/config/alert-rules` 404'd even right after a successful
+  `POST`**: shadowed the same way by `/api/config/{key}` (rules live under
+  the `custom_alert_rules` key, so the pattern route looked up a key named
+  `alert-rules` and found nothing).
+- **`GET /api/entities/{id}` was documented but unrouted** (only the
+  `/graph` and `/detail` variants existed). Added.
+- **`DELETE /api/skill-executions/{id}` was documented but unimplemented.**
+  Added, following the suite-wide unconditional-200 DELETE convention.
+
+### Security
+- **`GET /api/config` no longer returns `operator_api_key` in clear.** The
+  list endpoint masked `llm_api_key` and `agent_api_key` but not the
+  operator credential itself, so any reader of the config list (e.g. the
+  settings screen fetch) received the operator API key verbatim. It is now
+  masked like the other two.
+
+### Documentation
+- **`api_documentation/http_api.md` reconciled with actual server
+  behavior**: corrected memory-list defaults (`limit=100`, no `?status=`),
+  the entity filter param (`?type=`, not `?entity_type=`), the accepted
+  bodies for `POST /api/memories/search` and `POST /api/goals`, workspace
+  file listing (no query filters), `session_id` being required for
+  `POST /api/agent/chat`, and the `{unpinned}` / `{updated}` response keys.
+  Documented the ~30 previously undocumented endpoints (threads, agent
+  registry, attachments/uploads, autonomous tasks, channels,
+  contradictions/feedback/audit/views, markdown + import, status probes,
+  skill-execution reads) and the suite-wide DELETE convention.
+
 ## [0.1.2] — 2026-07-05
 
 Metadata correction, CI fixes, bug fixes surfaced by the new HTTP-level

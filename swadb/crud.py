@@ -1901,6 +1901,12 @@ def get_skill_execution(conn, exec_id):
     return _row_to_dict(row)
 
 
+def delete_skill_execution(conn, exec_id):
+    """Delete a skill execution log entry."""
+    conn.execute("DELETE FROM skill_executions WHERE id = ?", (exec_id,))
+    conn.commit()
+
+
 # ═══════════════════════════════════════════════════════════════════
 # CHANNEL CONFIGS
 # ═══════════════════════════════════════════════════════════════════

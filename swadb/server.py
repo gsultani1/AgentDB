@@ -458,6 +458,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             if m:
                 crud.unpin_memory(conn, m["id"])
                 return _json_response(self, 200, data={"unpinned": m["id"]})
+            m = _match("/api/skill-executions/{id}", path)
+            if m:
+                crud.delete_skill_execution(conn, m["id"])
+                return _json_response(self, 200, data={"deleted": m["id"]})
             m = _match("/api/channels/{id}", path)
             if m:
                 crud.delete_channel_config(conn, m["id"])
@@ -480,6 +484,15 @@ class AgentDBHandler(BaseHTTPRequestHandler):
     # ══════════════════════════════════════════════════════════════
 
     def _route_get(self, path, qp):
+        # Unauthenticated liveness probe. Locked mode answers this inline in
+        # do_GET (before routing); this is the unlocked counterpart. Answered
+        # before the auth check and without a DB connection so uptime probes
+        # work regardless of operator_api_key or DB state.
+        if path == "/api/health":
+            uptime = round(time.time() - _start_time, 1) if _start_time else 0
+            return _json_response(self, 200, data={
+                "status": "ok", "locked": False, "uptime_seconds": uptime,
+            })
         # Agent routes have their own auth — skip operator check for them
         if path.startswith("/api/agent/"):
             if path != "/api/agent/health":
@@ -583,7 +596,13 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 )
                 return _json_response(self, 200, data=status)
 
-            # Parameterized routes
+            # Parameterized routes. Literal paths that a pattern would
+            # otherwise capture must be checked BEFORE the pattern —
+            # /api/memories/pinned is not a tier.
+            if path == "/api/memories/pinned":
+                agent_id = qp.get("agent_id", [None])[0]
+                pins = crud.list_pinned_memories(conn, agent_id=agent_id)
+                return _json_response(self, 200, data=pins)
             m = _match("/api/memories/{tier}", path)
             if m:
                 return self._op_memories_list(conn, m["tier"], qp)
@@ -596,12 +615,29 @@ class AgentDBHandler(BaseHTTPRequestHandler):
             m = _match("/api/entities/{id}/detail", path)
             if m:
                 return self._op_entity_detail(conn, m["id"], qp)
+            m = _match("/api/entities/{id}", path)
+            if m:
+                entity = crud.get_entity(conn, m["id"])
+                if not entity:
+                    return _json_response(self, 404, error="Entity not found")
+                entity.pop("embedding", None)
+                return _json_response(self, 200, data=entity)
             m = _match("/api/skills/{id}/implementations", path)
             if m:
                 return self._op_skill_implementations(conn, m["id"])
             m = _match("/api/relations/{node_id}", path)
             if m:
                 return self._op_relations(conn, m["node_id"])
+            # Literal before pattern: alert rules live under the
+            # 'custom_alert_rules' config key, not a key named 'alert-rules',
+            # so /api/config/{key} must not capture this path.
+            if path == "/api/config/alert-rules":
+                rules_json = crud.get_config_value(conn, "custom_alert_rules", "[]")
+                try:
+                    rules = json.loads(rules_json)
+                except (json.JSONDecodeError, TypeError):
+                    rules = []
+                return _json_response(self, 200, data=rules)
             m = _match("/api/config/{key}", path)
             if m:
                 return self._op_config_get(conn, m["key"])
@@ -636,10 +672,6 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 offset = int(qp.get("offset", [0])[0])
                 msgs = crud.get_thread_messages(conn, m["id"], limit=limit, offset=offset)
                 return _json_response(self, 200, data=msgs)
-            if path == "/api/memories/pinned":
-                agent_id = qp.get("agent_id", [None])[0]
-                pins = crud.list_pinned_memories(conn, agent_id=agent_id)
-                return _json_response(self, 200, data=pins)
             if path == "/api/attachments":
                 session_id = qp.get("session_id", [None])[0]
                 limit = int(qp.get("limit", [50])[0])
@@ -766,13 +798,6 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 ).fetchall()
                 schema = [{"name": t["name"], "sql": t["sql"]} for t in tables]
                 return _json_response(self, 200, data=schema)
-            if path == "/api/config/alert-rules":
-                rules_json = crud.get_config_value(conn, "custom_alert_rules", "[]")
-                try:
-                    rules = json.loads(rules_json)
-                except (json.JSONDecodeError, TypeError):
-                    rules = []
-                return _json_response(self, 200, data=rules)
             if path == "/api/git-sync/status":
                 from swadb.git_sync import get_sync_status
                 return _json_response(self, 200, data=get_sync_status(conn))
@@ -1975,9 +2000,10 @@ class AgentDBHandler(BaseHTTPRequestHandler):
 
     def _op_config_list(self, conn):
         configs = crud.list_config(conn)
-        # Mask sensitive keys
+        # Mask sensitive keys — operator_api_key included, or the config
+        # list would hand the operator credential to any reader of it.
         for c in configs:
-            if c["key"] in ("llm_api_key", "agent_api_key") and c["value"]:
+            if c["key"] in ("llm_api_key", "agent_api_key", "operator_api_key") and c["value"]:
                 c["value"] = c["value"][:4] + "****" if len(c["value"]) > 4 else "****"
         _json_response(self, 200, data=configs)
 

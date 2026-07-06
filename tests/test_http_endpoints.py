@@ -201,12 +201,13 @@ def test_agent_health(server):
     assert "last_consolidation" in data
 
 
-def test_operator_health_doc_mismatch(server):
-    # DOC MISMATCH: http_api.md documents GET /api/health, but no route
-    # exists while unlocked — it's only answered inline in locked mode.
-    status, env = _call(server, "GET", "/api/health")
-    assert status == 404
-    assert "Not found" in env["error"]
+def test_operator_health(server):
+    # Unauthenticated liveness probe; the unlocked counterpart of the
+    # locked-mode {"status": "locked", "locked": true} response.
+    data = _ok(server, "GET", "/api/health")
+    assert data["status"] == "ok"
+    assert data["locked"] is False
+    assert isinstance(data["uptime_seconds"], (int, float))
 
 
 def test_stats(server):
@@ -217,8 +218,8 @@ def test_stats(server):
         assert isinstance(data[key], int), key
     assert isinstance(data["llm_provider"], str)
     assert isinstance(data["agents"], int)
-    # Doc calls this "queue depths"; it's really the cache metrics sub-dict
-    # (the int table count gets overwritten by the dict).
+    # query_cache is the cache-metrics sub-dict (the int table count gets
+    # overwritten by the dict).
     assert isinstance(data["query_cache"], dict)
 
 
@@ -244,7 +245,7 @@ def test_memory_lifecycle(server, embeddings, tier):
     assert created["tier"] == tier
     mem_id = created["id"]
 
-    # List: default limit is 100 (doc says 50) and ?status= is ignored.
+    # List: default limit is 100; there is no ?status= filter.
     listed = _ok(server, "GET", f"/api/memories/{tier}?limit=100")
     assert isinstance(listed, list)
     ours = [m for m in listed if m["id"] == mem_id]
@@ -338,13 +339,11 @@ def test_batch_delete(server, embeddings):
     assert detail["status"] == "expired"
 
 
-def test_pinned_list_shadowed_doc_mismatch(server):
-    # DOC MISMATCH / ROUTING BUG: GET /api/memories/pinned is captured by
-    # the /api/memories/{tier} pattern first, so the documented pinned-list
-    # handler is dead code and this returns 400.
-    status, env = _call(server, "GET", "/api/memories/pinned")
-    assert status == 400
-    assert "Invalid tier" in env["error"]
+def test_pinned_list(server):
+    # The literal path must win over the /api/memories/{tier} pattern —
+    # this used to be shadowed and 400 as "Invalid tier: pinned".
+    data = _ok(server, "GET", "/api/memories/pinned")
+    assert isinstance(data, list)
 
 
 def test_pin_lifecycle(server, embeddings):
@@ -357,6 +356,9 @@ def test_pin_lifecycle(server, embeddings):
                 "label": "pinned by http test"},
                expect=201)
     pin_id = data["id"]
+
+    pins = _ok(server, "GET", "/api/memories/pinned")
+    assert any(p["id"] == pin_id for p in pins)
 
     data = _ok(server, "PUT", f"/api/memories/pinned/{pin_id}/priority", {"priority": 7})
     assert data == {"id": pin_id, "priority": 7}
@@ -378,16 +380,19 @@ def test_entity_lifecycle(server, embeddings):
     ent_id = created["id"]
     assert isinstance(ent_id, str)
 
-    # Filter param is ?type=, not the documented ?entity_type=.
+    # Filter param is ?type= (not ?entity_type=).
     listed = _ok(server, "GET", "/api/entities?type=concept&limit=100")
     assert isinstance(listed, list)
     ours = [e for e in listed if e["id"] == ent_id]
     assert len(ours) == 1
     assert "embedding" not in ours[0]
 
-    # DOC MISMATCH: plain GET /api/entities/{id} is documented but unrouted —
-    # only the /graph and /detail variants exist.
-    status, _ = _call(server, "GET", f"/api/entities/{ent_id}")
+    fetched = _ok(server, "GET", f"/api/entities/{ent_id}")
+    assert fetched["id"] == ent_id
+    assert fetched["canonical_name"] == name
+    assert "embedding" not in fetched
+
+    status, _ = _call(server, "GET", f"/api/entities/{_uniq('nope')}")
     assert status == 404
 
     graph = _ok(server, "GET", f"/api/entities/{ent_id}/graph?depth=1")
@@ -422,7 +427,7 @@ def test_entity_graph_missing(server):
 
 def test_goal_lifecycle(server, embeddings):
     desc = _uniq("goal description")
-    # Doc also lists criteria?/status? body fields; the handler ignores them.
+    # Accepted body fields: description, priority, deadline, parent_goal_id.
     created = _ok(server, "POST", "/api/goals",
                   {"description": desc, "priority": 3}, expect=201, timeout=60)
     goal_id = created["id"]
@@ -484,13 +489,14 @@ def test_skill_executions(server, embeddings):
                {"skill_id": skill_id, "inputs": {}})
     assert isinstance(data, dict)  # execute_skill result dict
 
-    listed = _ok(server, "GET", "/api/skill-executions")  # undocumented but routed
+    listed = _ok(server, "GET", "/api/skill-executions")
     assert isinstance(listed, list)
 
-    # DOC MISMATCH: DELETE /api/skill-executions/{id} is documented but no
-    # such route exists.
-    status, _ = _call(server, "DELETE", f"/api/skill-executions/{_uniq('x')}")
-    assert status == 404
+    # DELETE follows the suite-wide convention: unconditional 200, even for
+    # ids that don't exist (same as the memory/entity DELETE endpoints).
+    exec_id = _uniq("x")
+    deleted = _ok(server, "DELETE", f"/api/skill-executions/{exec_id}")
+    assert deleted == {"deleted": exec_id}
 
 
 def test_agent_skill_execute(server, embeddings):
@@ -550,7 +556,7 @@ def test_workspace_lifecycle(server, embeddings, tmp_path):
     scan = _ok(server, "POST", f"/api/workspaces/{ws_id}/scan", timeout=60)
     assert isinstance(scan, dict)
 
-    # Documented ?file_type=&limit= are ignored by the handler.
+    # Returns every file row; there are no query filters on this endpoint.
     files = _ok(server, "GET", f"/api/workspaces/{ws_id}/files")
     assert isinstance(files, list)
     for f in files:
@@ -691,15 +697,14 @@ def test_config_crud(server):
 
 
 def test_alert_rules(server):
-    data = _ok(server, "POST", "/api/config/alert-rules",
-               {"rules": [{"metric": "short_term_memories", "threshold": 10}]})
+    rules = [{"metric": "short_term_memories", "threshold": 10}]
+    data = _ok(server, "POST", "/api/config/alert-rules", {"rules": rules})
     assert data == {"saved": 1}
 
-    # DOC MISMATCH / ROUTING BUG: GET /api/config/alert-rules is shadowed by
-    # the /api/config/{key} pattern; rules live under 'custom_alert_rules',
-    # so the documented GET 404s even right after a successful save.
-    status, env = _call(server, "GET", "/api/config/alert-rules")
-    assert status == 404
+    # The literal path must win over /api/config/{key} — rules live under
+    # the 'custom_alert_rules' key, so the pattern route used to 404 here
+    # even right after a successful save.
+    assert _ok(server, "GET", "/api/config/alert-rules") == rules
 
 
 # ══════════════════════════════════════════════════════════════
@@ -856,7 +861,7 @@ def test_agent_session_start_end(server, embeddings):
 
 
 def test_agent_chat_requires_session_id(server):
-    # DOC MISMATCH: doc marks session_id optional; code 400s without it.
+    # session_id is required — get one from /api/agent/session/start.
     # (Validation happens before any LLM call, so this is offline-safe.)
     status, _ = _call(server, "POST", "/api/agent/chat", {"message": "hi"})
     assert status == 400
