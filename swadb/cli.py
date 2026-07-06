@@ -12,7 +12,7 @@ from pathlib import Path
 
 from swadb.database import initialize_database, get_connection, verify_schema, DEFAULT_CONFIG
 from swadb.schema import ALL_TABLES
-from swadb import crud
+from swadb import __version__, crud
 
 
 DEFAULT_DB_PATH = Path("swadb.db")
@@ -390,6 +390,9 @@ def build_parser():
     parser = argparse.ArgumentParser(
         prog="swadb",
         description="AgentDB - Sovereign Agent Memory System",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--db", default=str(DEFAULT_DB_PATH),

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`swadb --version` flag** (argparse-native; `swadb` and `swadb --help`
+  already showed the version inline).
+- **HTTP-level integration suite** (`tests/test_http_endpoints.py`,
+  `slow`-marked): boots a real `swadb serve` subprocess on a fresh tempdir
+  DB and drives 60+ endpoints through full lifecycles, asserting the
+  `{status, data, error}` envelope and response shapes. This is the
+  regression net for the handler-shape bug class; it caught all three
+  0.1.2 code fixes.
+- **`api_documentation/troubleshooting.md`** — seven common failure modes
+  with copy-pasteable fixes.
+- README: CI/PyPI/Python/license badges; corrected two stale "MIT"
+  references (the license is Apache-2.0).
+
 ## [0.1.2] — 2026-07-05
 
 Metadata correction, CI fixes, and three bug fixes surfaced by the new

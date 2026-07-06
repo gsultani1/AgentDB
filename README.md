@@ -1,8 +1,10 @@
 # AgentDB
 
+[![Tests](https://github.com/gsultani1/AgentDB/actions/workflows/test.yml/badge.svg)](https://github.com/gsultani1/AgentDB/actions/workflows/test.yml) [![PyPI](https://img.shields.io/pypi/v/swadb)](https://pypi.org/project/swadb/) ![Python versions](https://img.shields.io/pypi/pyversions/swadb) ![License](https://img.shields.io/pypi/l/swadb)
+
 A sovereign, local-first agent memory system with tiered knowledge, an empirical knowledge graph, MCP-native agent communication, multi-agent support, markdown authoring, and external chat migration.
 
-**MIT License — Sultani Investments, LLC**
+**Apache-2.0 License — Sultani Investments, LLC**
 
 ---
 
@@ -468,4 +470,4 @@ Detailed documentation is in the [`docs/`](docs/) directory:
 
 ## License
 
-MIT LICENSE HOMIE — Sultani Investments, LLC. All rights reserved.
+Apache-2.0 — Sultani Investments, LLC.

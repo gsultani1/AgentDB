@@ -13,6 +13,7 @@ the documentation that ships alongside the PyPI release and answers
 | [mcp.md](mcp.md) | Anyone wiring swadb into an MCP-aware client (Claude Desktop, Cursor, etc.) | 5 min |
 | [configuration.md](configuration.md) | Anyone tuning behavior via `meta_config` | reference |
 | [extras.md](extras.md) | Anyone deciding which optional dependencies to install | 2 min |
+| [troubleshooting.md](troubleshooting.md) | Anyone staring at an error message | 5 min |
 | [architecture.md](architecture.md) | Anyone wanting the 30k-foot system view | 10 min |
 
 For schema-level details (every table, every column), see the
