@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-07-05
+
+Metadata correction + CI fixes. No code changes.
+
+### Fixed
+- **Python floor corrected to 3.10** (`requires-python = ">=3.10"`).
+  0.1.0/0.1.1 declared Python 3.9 support, but the required `mcp`
+  dependency has no release for Python <3.10, so installation on 3.9
+  was never actually possible — it failed with a confusing resolver
+  error. With the corrected metadata, pip on 3.9 now skips 0.1.2
+  cleanly instead of attempting a doomed install. Not treated as a
+  semver break because 3.9 support never functioned (and 3.9 has been
+  end-of-life since October 2025).
+- **CI: hnswlib SIGILL crash (exit 132).** hnswlib ships source-only
+  and compiles with `-march=native`; GitHub's runner fleet has
+  heterogeneous CPUs and the pip cache is shared across them, so a
+  wheel built on one runner could crash the interpreter with an
+  illegal-instruction fault on another. Both workflows now build
+  hnswlib portably (`HNSWLIB_NO_NATIVE=1`, `--no-cache-dir`). This was
+  the failure that blocked the v0.1.1 publish workflow (0.1.1 was
+  uploaded manually).
+- **CI: Node 20 deprecation** — bumped `actions/checkout` to v5 and
+  `actions/setup-python` to v6 across workflows.
+
 ## [0.1.1] — 2026-05-12
 
 Embedded-usage ergonomics. Pure addition — no behavior change for CLI,

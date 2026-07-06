@@ -45,7 +45,7 @@ The defining architectural principle is **demand-constructed context**. AgentDB 
 
 ### Prerequisites
 
-- Python 3.9 or later
+- Python 3.10 or later
 
 ### Install
 
