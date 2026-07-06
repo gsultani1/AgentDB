@@ -26,7 +26,7 @@ from swadb.database import (
     verify_schema,
 )
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "George Sultani"
 __license__ = "Apache-2.0"
 __url__ = "https://github.com/gsultani1/AgentDB"

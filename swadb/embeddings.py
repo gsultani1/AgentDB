@@ -6,10 +6,13 @@ for local embedding generation with no external API calls.
 """
 
 import struct
+import threading
+
 import numpy as np
 
 _model = None
 _model_name = None
+_model_lock = threading.Lock()
 
 
 def get_model(model_name="all-MiniLM-L6-v2"):
@@ -23,10 +26,16 @@ def get_model(model_name="all-MiniLM-L6-v2"):
         SentenceTransformer model instance.
     """
     global _model, _model_name
+    # The server's startup warmup thread and the first embedding request
+    # can race here; two concurrent SentenceTransformer loads can poison
+    # the process (torch "Cannot copy out of meta tensor"). Double-checked
+    # lock so the steady state stays lock-free.
     if _model is None or _model_name != model_name:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(model_name)
-        _model_name = model_name
+        with _model_lock:
+            if _model is None or _model_name != model_name:
+                from sentence_transformers import SentenceTransformer
+                _model = SentenceTransformer(model_name)
+                _model_name = model_name
     return _model
 
 

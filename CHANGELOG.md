@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`swadb --version` flag** (argparse-native; `swadb` and `swadb --help`
+  already showed the version inline).
+- **HTTP-level integration suite** (`tests/test_http_endpoints.py`,
+  `slow`-marked): boots a real `swadb serve` subprocess on a fresh tempdir
+  DB and drives 60+ endpoints through full lifecycles, asserting the
+  `{status, data, error}` envelope and response shapes. This is the
+  regression net for the handler-shape bug class; it caught all three
+  0.1.2 code fixes.
+- **`api_documentation/troubleshooting.md`** — seven common failure modes
+  with copy-pasteable fixes.
+- README: CI/PyPI/Python/license badges; corrected two stale "MIT"
+  references (the license is Apache-2.0).
+
+## [0.1.2] — 2026-07-05
+
+Metadata correction, CI fixes, and three bug fixes surfaced by the new
+HTTP-level integration suite.
+
+### Fixed
+- **`POST /api/memories/pin` 500'd on every call**: the handler forwarded
+  `reason=` to `crud.pin_memory()`, whose parameter is `label=` —
+  `TypeError` on each request since the endpoint shipped. It now accepts
+  the documented `label` field. (`/api/memories/batch/pin` was unaffected
+  and remains the bulk path.)
+- **Thread race in embedding model load**: `swadb.embeddings.get_model()`
+  had no lock, so an embedding request arriving while the server's startup
+  warmup thread was mid-load could trigger a concurrent double load and
+  poison the process (torch "Cannot copy out of meta tensor"). Now guarded
+  by a double-checked `threading.Lock`.
+- **`swadb mcp --port` was silently ignored**: the CLI defined the flag but
+  never passed it to `run_mcp_server()`. It is now honored.
+- **`swadb.__version__` said 0.1.1**: the module constant wasn't bumped
+  with the release. The publish workflow now refuses to ship if
+  `swadb/__init__.py` disagrees with the tag, so this class of drift is
+  dead.
+- **Python floor corrected to 3.10** (`requires-python = ">=3.10"`).
+  0.1.0/0.1.1 declared Python 3.9 support, but the required `mcp`
+  dependency has no release for Python <3.10, so installation on 3.9
+  was never actually possible — it failed with a confusing resolver
+  error. With the corrected metadata, pip on 3.9 now skips 0.1.2
+  cleanly instead of attempting a doomed install. Not treated as a
+  semver break because 3.9 support never functioned (and 3.9 has been
+  end-of-life since October 2025).
+- **CI: hnswlib SIGILL crash (exit 132).** hnswlib ships source-only
+  and compiles with `-march=native`; GitHub's runner fleet has
+  heterogeneous CPUs and the pip cache is shared across them, so a
+  wheel built on one runner could crash the interpreter with an
+  illegal-instruction fault on another. Both workflows now build
+  hnswlib portably (`HNSWLIB_NO_NATIVE=1`, `--no-cache-dir`). This was
+  the failure that blocked the v0.1.1 publish workflow (0.1.1 was
+  uploaded manually).
+- **CI: Node 20 deprecation** — bumped `actions/checkout` to v5 and
+  `actions/setup-python` to v6 across workflows.
+
 ## [0.1.1] — 2026-05-12
 
 Embedded-usage ergonomics. Pure addition — no behavior change for CLI,

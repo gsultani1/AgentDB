@@ -54,6 +54,34 @@ def reset_runtime_passphrase():
     clear_runtime_passphrase()
 
 
+def _embedding_model_cached():
+    candidates = [
+        os.environ.get("HF_HUB_CACHE", ""),
+        os.path.join(os.environ.get("HF_HOME", ""), "hub"),
+        os.path.expanduser("~/.cache/huggingface/hub"),
+    ]
+    for cache in candidates:
+        if cache and os.path.isdir(
+                os.path.join(cache, "models--sentence-transformers--all-MiniLM-L6-v2")):
+            return True
+    return False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def hf_offline_if_model_cached():
+    """
+    If the embedding model is already in the local HF cache, force offline
+    mode for the whole session (spawned server subprocesses inherit it via
+    os.environ): a blocked or flaky hub revision check would otherwise fail
+    loading a perfectly good cached model. Uncached environments are left
+    alone so they can still download.
+    """
+    if _embedding_model_cached():
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    yield
+
+
 def _has_sqlcipher():
     try:
         import sqlcipher3  # noqa: F401

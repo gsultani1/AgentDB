@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Python 3.9 or later** (tested through 3.13)
+- **Python 3.10 or later** (tested through 3.13)
 - A few hundred MB of disk for the embedding model (downloaded on first run)
 
 ## Standard install

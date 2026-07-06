@@ -12,7 +12,7 @@ from pathlib import Path
 
 from swadb.database import initialize_database, get_connection, verify_schema, DEFAULT_CONFIG
 from swadb.schema import ALL_TABLES
-from swadb import crud
+from swadb import __version__, crud
 
 
 DEFAULT_DB_PATH = Path("swadb.db")
@@ -227,7 +227,7 @@ def cmd_mcp(args):
         print(f"Database not found at {db_path}. Run 'swadb init' first.")
         sys.exit(1)
     from swadb.mcp_server import run_mcp_server
-    run_mcp_server(str(db_path), transport=args.transport)
+    run_mcp_server(str(db_path), transport=args.transport, port=args.port)
 
 
 def cmd_ann_rebuild(args):
@@ -390,6 +390,9 @@ def build_parser():
     parser = argparse.ArgumentParser(
         prog="swadb",
         description="AgentDB - Sovereign Agent Memory System",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--db", default=str(DEFAULT_DB_PATH),
