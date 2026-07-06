@@ -1215,7 +1215,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     conn, memory_id, memory_table,
                     agent_id=body.get("agent_id", "default"),
                     priority=body.get("priority", 0),
-                    reason=body.get("reason"),
+                    label=body.get("label"),
                 )
                 return _json_response(self, 201, data={"id": pin_id})
 

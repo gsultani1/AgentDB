@@ -57,11 +57,19 @@ jobs:
       - name: Verify tag matches package version
         run: |
           PKG_VERSION=$(python -c "import re,pathlib; m=re.search(r'^version\s*=\s*\"([^\"]+)\"', pathlib.Path('pyproject.toml').read_text(), re.M); print(m.group(1))")
+          MOD_VERSION=$(python -c "import re,pathlib; m=re.search(r'^__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('swadb/__init__.py').read_text(), re.M); print(m.group(1))")
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
           echo "pyproject.toml version: $PKG_VERSION"
+          echo "swadb.__version__:      $MOD_VERSION"
           echo "git tag version:        $TAG_VERSION"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::Tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
+            exit 1
+          fi
+          # swadb --version prints __version__; don't let it drift from the
+          # release tag (it shipped stale once — 0.1.2 nearly said 0.1.1).
+          if [ "$MOD_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::swadb/__init__.py __version__ ($MOD_VERSION) does not match tag ($TAG_VERSION)"
             exit 1
           fi
 

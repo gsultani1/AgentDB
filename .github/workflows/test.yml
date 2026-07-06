@@ -72,8 +72,13 @@ jobs:
           python -m build
 
       - name: Verify static assets included in wheel
+        # One grep per file: a single alternation passes if ANY asset is
+        # present, which defeats the point of the check.
         run: |
-          python -m zipfile -l dist/*.whl | grep -E "static/(index\.html|css/main\.css|js/app\.js)"
+          python -m zipfile -l dist/*.whl > wheel-listing.txt
+          grep -q "static/index.html" wheel-listing.txt
+          grep -q "static/css/main.css" wheel-listing.txt
+          grep -q "static/js/app.js" wheel-listing.txt
           test -f dist/swadb-*.tar.gz
           test -f dist/swadb-*-py3-none-any.whl
 

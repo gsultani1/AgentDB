@@ -227,7 +227,7 @@ def cmd_mcp(args):
         print(f"Database not found at {db_path}. Run 'swadb init' first.")
         sys.exit(1)
     from swadb.mcp_server import run_mcp_server
-    run_mcp_server(str(db_path), transport=args.transport)
+    run_mcp_server(str(db_path), transport=args.transport, port=args.port)
 
 
 def cmd_ann_rebuild(args):
