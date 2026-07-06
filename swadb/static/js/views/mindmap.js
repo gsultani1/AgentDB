@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.mindmap = {};
+  const V = swadb.views.mindmap = {};
   const el = () => document.getElementById('view-mindmap');
 
   V.load = function() {
@@ -34,7 +34,7 @@
     canvas.addEventListener('click', function(e) {
       const node = V._hitTest(e);
       if (node && (node.table === 'entities' || node.type === 'entity')) {
-        AgentDB.openEntityDetail(node.id);
+        swadb.openEntityDetail(node.id);
       }
     });
     canvas.addEventListener('mousemove', function(e) {
@@ -72,12 +72,12 @@
     const depth = parseInt(document.getElementById('mm-depth').value) || 2;
     const status = document.getElementById('mm-status');
 
-    if (!query) { AgentDB.toast('Enter an entity name or ID'); return; }
+    if (!query) { swadb.toast('Enter an entity name or ID'); return; }
 
     status.textContent = 'Loading entities...';
 
     // Fetch all entities, find match
-    const listRes = await AgentDB.api('GET', '/api/entities?limit=200');
+    const listRes = await swadb.api('GET', '/api/entities?limit=200');
     if (listRes.status !== 'ok' || !listRes.data) {
       status.textContent = 'Failed to load entities.';
       return;
@@ -97,7 +97,7 @@
 
     status.textContent = `Loading graph for "${match.name}" (depth ${depth})...`;
 
-    const graphRes = await AgentDB.api('GET', `/api/entities/${match.id}/graph?depth=${depth}`);
+    const graphRes = await swadb.api('GET', `/api/entities/${match.id}/graph?depth=${depth}`);
     if (graphRes.status !== 'ok' || !graphRes.data) {
       status.textContent = 'Failed to load entity graph.';
       return;

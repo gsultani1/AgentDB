@@ -1,11 +1,11 @@
 """
-Workspace scanner / summarizer for AgentDB.
+Workspace scanner / summarizer for swadb.
 
 Walks a registered workspace's root_path, upserts file records into
 workspace_files, generates embeddings for readable text files, and builds
 chunk_of relations so the graph traversal pipeline can surface file context.
 
-Scannable text types and their AgentDB file_type labels:
+Scannable text types and their swadb file_type labels:
     .py / .js / .ts / .rb / .go / .java / .c / .cpp / .h  → python (code)
     .md / .txt / .rst                                       → markdown
     .json / .yaml / .yml / .toml / .ini / .cfg / .env      → config

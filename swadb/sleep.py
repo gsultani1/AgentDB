@@ -1,5 +1,5 @@
 """
-Sleep-time reflection engine for AgentDB v1.5/v1.6.
+Sleep-time reflection engine for swadb v1.5/v1.6.
 
 Implements idle-time processing:
 

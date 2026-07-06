@@ -1,5 +1,5 @@
 """
-Context retrieval pipeline for AgentDB v1.5/v1.6.
+Context retrieval pipeline for swadb v1.5/v1.6.
 
 Implements the multi-stage retrieval pipeline:
 1. Query normalization + embedding generation

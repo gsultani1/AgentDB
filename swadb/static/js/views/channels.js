@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.channels = {};
+  const V = swadb.views.channels = {};
   const el = () => document.getElementById('view-channels');
 
   V.load = async function() {
@@ -18,7 +18,7 @@
   async function loadChannels() {
     const container = document.getElementById('channels-list');
     container.innerHTML = '<div class="loading">Loading channels...</div>';
-    const res = await AgentDB.api('GET', '/api/channels');
+    const res = await swadb.api('GET', '/api/channels');
     const channels = res?.data || res || [];
 
     if (!channels.length) {
@@ -28,17 +28,17 @@
     container.innerHTML = channels.map(ch => `
       <div class="card channel-card">
         <div class="card-header">
-          <strong>${AgentDB.esc(ch.name)}</strong>
+          <strong>${swadb.esc(ch.name)}</strong>
           <span class="badge badge-${ch.enabled !== false ? 'green' : 'gray'}">${ch.enabled !== false ? 'Active' : 'Disabled'}</span>
-          <span class="badge">${AgentDB.esc(ch.channel_type || 'unknown')}</span>
+          <span class="badge">${swadb.esc(ch.channel_type || 'unknown')}</span>
         </div>
         <div class="card-meta">
-          <span>Agent: ${AgentDB.esc(ch.agent_id || 'default')}</span>
-          <span>Created: ${AgentDB.formatDate(ch.created_at)}</span>
+          <span>Agent: ${swadb.esc(ch.agent_id || 'default')}</span>
+          <span>Created: ${swadb.formatDate(ch.created_at)}</span>
         </div>
         <div class="card-actions">
-          <button class="btn btn-sm" onclick="AgentDB.views.channels.viewMessages('${ch.id}')">Messages</button>
-          <button class="btn btn-sm btn-danger" onclick="AgentDB.views.channels.deleteChannel('${ch.id}')">Delete</button>
+          <button class="btn btn-sm" onclick="swadb.views.channels.viewMessages('${ch.id}')">Messages</button>
+          <button class="btn btn-sm btn-danger" onclick="swadb.views.channels.deleteChannel('${ch.id}')">Delete</button>
         </div>
       </div>
     `).join('');
@@ -72,14 +72,14 @@
     document.getElementById('ch-create-btn').addEventListener('click', async () => {
       const name = document.getElementById('ch-name').value.trim();
       const channel_type = document.getElementById('ch-type').value;
-      if (!name) return AgentDB.toast('Name is required', 'error');
-      const res = await AgentDB.api('POST', '/api/channels', { name, channel_type });
+      if (!name) return swadb.toast('Name is required', 'error');
+      const res = await swadb.api('POST', '/api/channels', { name, channel_type });
       if (res && !res.error) {
-        AgentDB.toast('Channel created', 'success');
+        swadb.toast('Channel created', 'success');
         container.style.display = 'none';
         await loadChannels();
       } else {
-        AgentDB.toast(res?.error || 'Failed', 'error');
+        swadb.toast(res?.error || 'Failed', 'error');
       }
     });
   }
@@ -87,20 +87,20 @@
   V.viewMessages = async function(channelId) {
     const container = document.getElementById('channels-list');
     container.innerHTML = '<div class="loading">Loading messages...</div>';
-    const res = await AgentDB.api('GET', `/api/channels/${channelId}/messages?limit=50`);
+    const res = await swadb.api('GET', `/api/channels/${channelId}/messages?limit=50`);
     const msgs = res?.data || res || [];
     container.innerHTML = `
       <div class="card">
         <div class="card-header">
           <h3>Messages</h3>
-          <button class="btn btn-sm" onclick="AgentDB.views.channels.load()">Back</button>
+          <button class="btn btn-sm" onclick="swadb.views.channels.load()">Back</button>
         </div>
         ${msgs.length ? msgs.map(m => `
           <div class="thread-msg">
             <span class="badge badge-${m.direction === 'inbound' ? 'blue' : 'green'}">${m.direction}</span>
-            <span class="text-secondary">${AgentDB.formatDate(m.created_at)}</span>
-            ${m.sender ? `<span>From: ${AgentDB.esc(m.sender)}</span>` : ''}
-            <div>${AgentDB.esc((m.content || '').substring(0, 500))}</div>
+            <span class="text-secondary">${swadb.formatDate(m.created_at)}</span>
+            ${m.sender ? `<span>From: ${swadb.esc(m.sender)}</span>` : ''}
+            <div>${swadb.esc((m.content || '').substring(0, 500))}</div>
           </div>
         `).join('') : '<div class="empty">No messages.</div>'}
       </div>
@@ -109,8 +109,8 @@
 
   V.deleteChannel = async function(id) {
     if (!confirm('Delete this channel and all its messages?')) return;
-    await AgentDB.api('DELETE', `/api/channels/${id}`);
-    AgentDB.toast('Channel deleted', 'success');
+    await swadb.api('DELETE', `/api/channels/${id}`);
+    swadb.toast('Channel deleted', 'success');
     await loadChannels();
   };
 })();

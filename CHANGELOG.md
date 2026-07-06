@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Product rebranded from "AgentDB" to swadb.** The split naming — PyPI
+  package `swadb`, product branded AgentDB — is gone; the product, web UI,
+  desktop shell, MCP server, and documentation all say swadb now. The
+  GitHub repository URL keeps the AgentDB name.
+  - **Breaking for MCP clients**: the MCP server announces itself as
+    `swadb` (was `AgentDB`). Update client configs that reference the
+    server by name.
+  - Explicitly unchanged: the deprecated `AGENTDB_PASSPHRASE` fallback
+    (removal still scheduled for 1.0), CHANGELOG history, archived PRDs,
+    and repository URLs.
+
 ### Fixed
 - **`GET /api/health` 404'd while unlocked**: the route only existed as an
   inline answer in locked mode. It is now a real route in both states —

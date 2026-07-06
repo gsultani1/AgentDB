@@ -1,5 +1,5 @@
 """
-Skill execution engine for AgentDB v1.5.
+Skill execution engine for swadb v1.5.
 
 Runs skills in sandboxed subprocesses with resource limits, timeout
 enforcement, and full execution logging.

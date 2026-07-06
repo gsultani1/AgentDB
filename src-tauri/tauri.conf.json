@@ -1,5 +1,5 @@
 {
-  "productName": "AgentDB",
+  "productName": "swadb",
   "version": "0.1.0",
   "identifier": "com.sultani.swadb",
   "build": {
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "AgentDB",
+        "title": "swadb",
         "width": 1280,
         "height": 800,
         "resizable": true,
@@ -26,7 +26,7 @@
     "trayIcon": {
       "iconPath": "icons/icon.png",
       "iconAsTemplate": true,
-      "tooltip": "AgentDB"
+      "tooltip": "swadb"
     }
   },
   "bundle": {

@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.dbconsole = {};
+  const V = swadb.views.dbconsole = {};
   const el = () => document.getElementById('view-dbconsole');
 
   V.lastResults = null; // captured for CSV/JSON export
@@ -79,11 +79,11 @@
           <div class="card" style="margin-top:16px">
             <h3>Quick Queries</h3>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-              <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT COUNT(*) as count, \\'short_term_memory\\' as tier FROM short_term_memory UNION ALL SELECT COUNT(*), \\'midterm_memory\\' FROM midterm_memory UNION ALL SELECT COUNT(*), \\'long_term_memory\\' FROM long_term_memory')">Memory Counts</button>
-              <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT canonical_name, entity_type, first_seen, last_seen FROM entities ORDER BY first_seen DESC LIMIT 20')">Recent Entities</button>
-              <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT name, action_type, status, last_run_at FROM scheduled_tasks ORDER BY last_run_at DESC')">Scheduled Tasks</button>
-              <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT key, value FROM meta_config ORDER BY key')">All Config</button>
-              <button class="btn btn-sm" onclick="AgentDB.views.dbconsole.quickQuery('SELECT table_name, operation, COUNT(*) as count FROM audit_log GROUP BY table_name, operation ORDER BY count DESC LIMIT 20')">Audit Summary</button>
+              <button class="btn btn-sm" onclick="swadb.views.dbconsole.quickQuery('SELECT COUNT(*) as count, \\'short_term_memory\\' as tier FROM short_term_memory UNION ALL SELECT COUNT(*), \\'midterm_memory\\' FROM midterm_memory UNION ALL SELECT COUNT(*), \\'long_term_memory\\' FROM long_term_memory')">Memory Counts</button>
+              <button class="btn btn-sm" onclick="swadb.views.dbconsole.quickQuery('SELECT canonical_name, entity_type, first_seen, last_seen FROM entities ORDER BY first_seen DESC LIMIT 20')">Recent Entities</button>
+              <button class="btn btn-sm" onclick="swadb.views.dbconsole.quickQuery('SELECT name, action_type, status, last_run_at FROM scheduled_tasks ORDER BY last_run_at DESC')">Scheduled Tasks</button>
+              <button class="btn btn-sm" onclick="swadb.views.dbconsole.quickQuery('SELECT key, value FROM meta_config ORDER BY key')">All Config</button>
+              <button class="btn btn-sm" onclick="swadb.views.dbconsole.quickQuery('SELECT table_name, operation, COUNT(*) as count FROM audit_log GROUP BY table_name, operation ORDER BY count DESC LIMIT 20')">Audit Summary</button>
             </div>
           </div>
         </div>
@@ -149,7 +149,7 @@
     V.loadSchema();
 
     // Check write status
-    AgentDB.api('GET', '/api/config/db_console_write_enabled').then(function(r) {
+    swadb.api('GET', '/api/config/db_console_write_enabled').then(function(r) {
       var status = document.getElementById('db-write-status');
       if (r.status === 'ok' && r.data && r.data.value === 'true') {
         status.innerHTML = '<span style="color:var(--yellow)">Write mode enabled</span>';
@@ -168,7 +168,7 @@
     document.getElementById('db-results').style.display = 'block';
     document.getElementById('db-results-table').innerHTML = '<div class="spinner"></div>';
 
-    var r = await AgentDB.api('POST', '/api/db/ai-query', { question: question });
+    var r = await swadb.api('POST', '/api/db/ai-query', { question: question });
     if (r.status === 'ok' && r.data) {
       if (r.data.sql) {
         document.getElementById('db-generated-sql').style.display = 'block';
@@ -193,7 +193,7 @@
     document.getElementById('db-results').style.display = 'block';
     document.getElementById('db-results-table').innerHTML = '<div class="spinner"></div>';
 
-    var r = await AgentDB.api('POST', '/api/db/query', { sql: sql });
+    var r = await swadb.api('POST', '/api/db/query', { sql: sql });
     if (r.status === 'ok' && r.data) {
       renderResults(r.data);
     } else {
@@ -219,7 +219,7 @@
   V.loadSchema = async function() {
     var list = document.getElementById('db-schema-list');
     list.innerHTML = '<div class="spinner"></div>';
-    var r = await AgentDB.api('GET', '/api/db-query/schema');
+    var r = await swadb.api('GET', '/api/db-query/schema');
     if (r.status !== 'ok' || !r.data) {
       list.innerHTML = '<div style="color:var(--red);font-size:11px">Failed to load schema</div>';
       return;
@@ -233,14 +233,14 @@
     tables.forEach(function(t) {
       var cols = parseColumns(t.sql);
       html += '<div style="margin-bottom:4px">';
-      html += '<div data-table-name="' + AgentDB.esc(t.name) + '" style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;cursor:pointer;border-radius:4px;background:var(--bg3)">';
-      html += '<span style="font-family:var(--mono);font-weight:600">' + AgentDB.esc(t.name) + '</span>';
+      html += '<div data-table-name="' + swadb.esc(t.name) + '" style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;cursor:pointer;border-radius:4px;background:var(--bg3)">';
+      html += '<span style="font-family:var(--mono);font-weight:600">' + swadb.esc(t.name) + '</span>';
       html += '<span style="display:flex;gap:4px;align-items:center"><span style="color:var(--text2);font-size:10px">' + cols.length + ' col' + (cols.length === 1 ? '' : 's') + '</span>';
-      html += '<button class="btn btn-sm" data-quick-select="' + AgentDB.esc(t.name) + '" style="padding:1px 6px;font-size:10px" title="SELECT * FROM ' + AgentDB.esc(t.name) + ' LIMIT 50">▶</button></span>';
+      html += '<button class="btn btn-sm" data-quick-select="' + swadb.esc(t.name) + '" style="padding:1px 6px;font-size:10px" title="SELECT * FROM ' + swadb.esc(t.name) + ' LIMIT 50">▶</button></span>';
       html += '</div>';
       html += '<div style="display:none;padding:4px 6px 6px 12px;font-family:var(--mono);font-size:11px;color:var(--text2)">';
       cols.forEach(function(c) {
-        html += '<div>' + AgentDB.esc(c.name) + ' <span style="color:var(--text2);opacity:0.7">' + AgentDB.esc(c.type || '') + '</span></div>';
+        html += '<div>' + swadb.esc(c.name) + ' <span style="color:var(--text2);opacity:0.7">' + swadb.esc(c.type || '') + '</span></div>';
       });
       html += '</div>';
       html += '</div>';
@@ -284,7 +284,7 @@
   V.loadHistory = async function() {
     var list = document.getElementById('db-history-list');
     list.innerHTML = '<div class="spinner"></div>';
-    var r = await AgentDB.api('GET', '/api/db-query/history');
+    var r = await swadb.api('GET', '/api/db-query/history');
     if (r.status !== 'ok') {
       list.innerHTML = '<div style="color:var(--red);font-size:12px">Failed to load history</div>';
       return;
@@ -297,28 +297,28 @@
     list.innerHTML = hist.map(function(h) {
       var preview = (h.sql || '').replace(/\s+/g, ' ').trim();
       if (preview.length > 120) preview = preview.substring(0, 120) + '…';
-      return '<div data-history-sql="' + AgentDB.esc(h.sql || '') +
+      return '<div data-history-sql="' + swadb.esc(h.sql || '') +
              '" style="padding:8px 10px;background:var(--bg3);border-radius:6px;margin-bottom:4px;cursor:pointer">' +
-             '<div style="font-family:var(--mono);font-size:11px">' + AgentDB.esc(preview) + '</div>' +
+             '<div style="font-family:var(--mono);font-size:11px">' + swadb.esc(preview) + '</div>' +
              '<div style="font-size:10px;color:var(--text2);margin-top:2px">' +
-             AgentDB.esc(h.ts || '') + ' • ' + (h.rows || 0) + ' row' + (h.rows === 1 ? '' : 's') + '</div></div>';
+             swadb.esc(h.ts || '') + ' • ' + (h.rows || 0) + ' row' + (h.rows === 1 ? '' : 's') + '</div></div>';
     }).join('');
   };
 
   V.clearHistory = async function() {
     if (!confirm('Clear all query history?')) return;
-    var r = await AgentDB.api('DELETE', '/api/db-query/history');
+    var r = await swadb.api('DELETE', '/api/db-query/history');
     if (r.status === 'ok') {
-      AgentDB.toast('History cleared', 'success');
+      swadb.toast('History cleared', 'success');
       V.loadHistory();
     } else {
-      AgentDB.toast('Failed: ' + (r.error || 'unknown'), 'error');
+      swadb.toast('Failed: ' + (r.error || 'unknown'), 'error');
     }
   };
 
   // ── Export ──────────────────────────────────────────────────────────
   V.exportCSV = function() {
-    if (!V.lastResults) return AgentDB.toast('No results to export', 'error');
+    if (!V.lastResults) return swadb.toast('No results to export', 'error');
     var cols = V.lastResults.columns || [];
     var rows = V.lastResults.rows || [];
     var lines = [cols.map(csvEscape).join(',')];
@@ -329,7 +329,7 @@
   };
 
   V.exportJSON = function() {
-    if (!V.lastResults) return AgentDB.toast('No results to export', 'error');
+    if (!V.lastResults) return swadb.toast('No results to export', 'error');
     downloadBlob(JSON.stringify(V.lastResults.rows || [], null, 2),
                  'query-results.json', 'application/json');
   };
@@ -378,7 +378,7 @@
     }
 
     var html = '<table><thead><tr>' +
-      columns.map(function(c) { return '<th>' + AgentDB.esc(c) + '</th>'; }).join('') +
+      columns.map(function(c) { return '<th>' + swadb.esc(c) + '</th>'; }).join('') +
       '</tr></thead><tbody>' +
       rows.map(function(row) {
         return '<tr>' + columns.map(function(c) {
@@ -386,7 +386,7 @@
           if (val === null || val === undefined) return '<td style="color:var(--text2);font-style:italic">NULL</td>';
           var s = String(val);
           if (s.length > 200) s = s.substring(0, 200) + '...';
-          return '<td style="font-size:12px">' + AgentDB.esc(s) + '</td>';
+          return '<td style="font-size:12px">' + swadb.esc(s) + '</td>';
         }).join('') + '</tr>';
       }).join('') +
       '</tbody></table>';

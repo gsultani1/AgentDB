@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.tasks = {};
+  const V = swadb.views.tasks = {};
   const el = () => document.getElementById('view-tasks');
   let currentTab = 'queue';
 
@@ -37,7 +37,7 @@
 
     let url = '/api/tasks?limit=50';
     if (status) url += `&status=${status}`;
-    const res = await AgentDB.api('GET', url);
+    const res = await swadb.api('GET', url);
     const tasks = res?.data || res || [];
 
     let filtered = tasks;
@@ -53,24 +53,24 @@
     container.innerHTML = filtered.map(t => `
       <div class="card task-card">
         <div class="card-header">
-          <strong>${AgentDB.esc(t.name)}</strong>
+          <strong>${swadb.esc(t.name)}</strong>
           <span class="badge badge-${statusColor(t.status)}">${t.status}</span>
         </div>
         <div class="card-meta">
-          <div>${AgentDB.esc((t.goal || '').substring(0, 200))}</div>
-          <span>Agent: ${AgentDB.esc(t.agent_id || 'default')}</span>
-          <span>Created: ${AgentDB.formatDate(t.created_at)}</span>
+          <div>${swadb.esc((t.goal || '').substring(0, 200))}</div>
+          <span>Agent: ${swadb.esc(t.agent_id || 'default')}</span>
+          <span>Created: ${swadb.formatDate(t.created_at)}</span>
           ${t.current_step ? `<span>Step: ${t.current_step}/${t.max_steps || '?'}</span>` : ''}
         </div>
         <div class="card-actions">
-          ${t.status === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="AgentDB.views.tasks.startTask('${t.id}')">Start</button>` : ''}
+          ${t.status === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="swadb.views.tasks.startTask('${t.id}')">Start</button>` : ''}
           ${t.status === 'running' ? `
-            <button class="btn btn-sm" onclick="AgentDB.views.tasks.pauseTask('${t.id}')">Pause</button>
-            <button class="btn btn-sm btn-danger" onclick="AgentDB.views.tasks.cancelTask('${t.id}')">Cancel</button>
+            <button class="btn btn-sm" onclick="swadb.views.tasks.pauseTask('${t.id}')">Pause</button>
+            <button class="btn btn-sm btn-danger" onclick="swadb.views.tasks.cancelTask('${t.id}')">Cancel</button>
           ` : ''}
-          ${t.status === 'paused' ? `<button class="btn btn-sm btn-primary" onclick="AgentDB.views.tasks.startTask('${t.id}')">Resume</button>` : ''}
-          <button class="btn btn-sm" onclick="AgentDB.views.tasks.viewTask('${t.id}')">Details</button>
-          <button class="btn btn-sm btn-danger" onclick="AgentDB.views.tasks.deleteTask('${t.id}')">Delete</button>
+          ${t.status === 'paused' ? `<button class="btn btn-sm btn-primary" onclick="swadb.views.tasks.startTask('${t.id}')">Resume</button>` : ''}
+          <button class="btn btn-sm" onclick="swadb.views.tasks.viewTask('${t.id}')">Details</button>
+          <button class="btn btn-sm btn-danger" onclick="swadb.views.tasks.deleteTask('${t.id}')">Delete</button>
         </div>
       </div>
     `).join('');
@@ -117,18 +117,18 @@
     document.getElementById('task-create-btn').addEventListener('click', async () => {
       const name = document.getElementById('task-name').value.trim();
       const goal = document.getElementById('task-goal').value.trim();
-      if (!name || !goal) return AgentDB.toast('Name and goal are required', 'error');
-      const res = await AgentDB.api('POST', '/api/tasks', {
+      if (!name || !goal) return swadb.toast('Name and goal are required', 'error');
+      const res = await swadb.api('POST', '/api/tasks', {
         name, goal,
         max_steps: parseInt(document.getElementById('task-max-steps').value) || 20,
         require_approval: document.getElementById('task-approval').value === 'true',
       });
       if (res && !res.error) {
-        AgentDB.toast('Task created', 'success');
+        swadb.toast('Task created', 'success');
         container.style.display = 'none';
         await loadTab();
       } else {
-        AgentDB.toast(res?.error || 'Failed', 'error');
+        swadb.toast(res?.error || 'Failed', 'error');
       }
     });
   }
@@ -136,9 +136,9 @@
   V.viewTask = async function(id) {
     const container = document.getElementById('tasks-content');
     const [taskRes, stepsRes, actionsRes] = await Promise.all([
-      AgentDB.api('GET', `/api/tasks/${id}`),
-      AgentDB.api('GET', `/api/tasks/${id}/steps`),
-      AgentDB.api('GET', `/api/tasks/${id}/actions`),
+      swadb.api('GET', `/api/tasks/${id}`),
+      swadb.api('GET', `/api/tasks/${id}/steps`),
+      swadb.api('GET', `/api/tasks/${id}/actions`),
     ]);
     const task = taskRes?.data || taskRes;
     const steps = stepsRes?.data || stepsRes || [];
@@ -147,16 +147,16 @@
     container.innerHTML = `
       <div class="card">
         <div class="card-header">
-          <h3>${AgentDB.esc(task?.name || id)}</h3>
-          <button class="btn btn-sm" onclick="AgentDB.views.tasks.load()">Back</button>
+          <h3>${swadb.esc(task?.name || id)}</h3>
+          <button class="btn btn-sm" onclick="swadb.views.tasks.load()">Back</button>
         </div>
         <div class="card-meta">
           <span class="badge badge-${statusColor(task?.status)}">${task?.status}</span>
           <span>Agent: ${task?.agent_id || 'default'}</span>
-          <span>Created: ${AgentDB.formatDate(task?.created_at)}</span>
+          <span>Created: ${swadb.formatDate(task?.created_at)}</span>
         </div>
-        <div><strong>Goal:</strong> ${AgentDB.esc(task?.goal || '')}</div>
-        ${task?.constraints ? `<div><strong>Constraints:</strong> ${AgentDB.esc(task.constraints)}</div>` : ''}
+        <div><strong>Goal:</strong> ${swadb.esc(task?.goal || '')}</div>
+        ${task?.constraints ? `<div><strong>Constraints:</strong> ${swadb.esc(task.constraints)}</div>` : ''}
 
         <h4>Steps (${steps.length})</h4>
         ${steps.length ? `<table class="data-table">
@@ -164,8 +164,8 @@
           <tbody>${steps.map((s, i) => `<tr>
             <td>${i + 1}</td>
             <td><span class="badge badge-${statusColor(s.status)}">${s.status}</span></td>
-            <td>${AgentDB.esc((s.action_type || '').substring(0, 50))}</td>
-            <td>${AgentDB.esc((s.output || '').substring(0, 100))}</td>
+            <td>${swadb.esc((s.action_type || '').substring(0, 50))}</td>
+            <td>${swadb.esc((s.output || '').substring(0, 100))}</td>
           </tr>`).join('')}</tbody>
         </table>` : '<div class="empty">No steps recorded.</div>'}
 
@@ -173,10 +173,10 @@
         ${actions.length ? `<table class="data-table">
           <thead><tr><th>Type</th><th>Status</th><th>Duration</th><th>Started</th></tr></thead>
           <tbody>${actions.map(a => `<tr>
-            <td>${AgentDB.esc(a.action_type || '')}</td>
+            <td>${swadb.esc(a.action_type || '')}</td>
             <td><span class="badge badge-${statusColor(a.status)}">${a.status}</span></td>
             <td>${a.duration_ms ? a.duration_ms + 'ms' : '-'}</td>
-            <td>${AgentDB.formatDate(a.started_at)}</td>
+            <td>${swadb.formatDate(a.started_at)}</td>
           </tr>`).join('')}</tbody>
         </table>` : '<div class="empty">No actions recorded.</div>'}
       </div>
@@ -184,25 +184,25 @@
   };
 
   V.startTask = async function(id) {
-    await AgentDB.api('POST', `/api/tasks/${id}/start`);
-    AgentDB.toast('Task started', 'success');
+    await swadb.api('POST', `/api/tasks/${id}/start`);
+    swadb.toast('Task started', 'success');
     await loadTab();
   };
   V.pauseTask = async function(id) {
-    await AgentDB.api('POST', `/api/tasks/${id}/pause`);
-    AgentDB.toast('Task paused', 'success');
+    await swadb.api('POST', `/api/tasks/${id}/pause`);
+    swadb.toast('Task paused', 'success');
     await loadTab();
   };
   V.cancelTask = async function(id) {
     if (!confirm('Cancel this task?')) return;
-    await AgentDB.api('POST', `/api/tasks/${id}/cancel`);
-    AgentDB.toast('Task cancelled', 'success');
+    await swadb.api('POST', `/api/tasks/${id}/cancel`);
+    swadb.toast('Task cancelled', 'success');
     await loadTab();
   };
   V.deleteTask = async function(id) {
     if (!confirm('Delete this task?')) return;
-    await AgentDB.api('DELETE', `/api/tasks/${id}`);
-    AgentDB.toast('Task deleted', 'success');
+    await swadb.api('DELETE', `/api/tasks/${id}`);
+    swadb.toast('Task deleted', 'success');
     await loadTab();
   };
 })();

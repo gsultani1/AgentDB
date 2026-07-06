@@ -1,8 +1,10 @@
-# AgentDB
+# swadb
 
 [![Tests](https://github.com/gsultani1/AgentDB/actions/workflows/test.yml/badge.svg)](https://github.com/gsultani1/AgentDB/actions/workflows/test.yml) [![PyPI](https://img.shields.io/pypi/v/swadb)](https://pypi.org/project/swadb/) ![Python versions](https://img.shields.io/pypi/pyversions/swadb) ![License](https://img.shields.io/pypi/l/swadb)
 
 A sovereign, local-first agent memory system with tiered knowledge, an empirical knowledge graph, MCP-native agent communication, multi-agent support, markdown authoring, and external chat migration.
+
+> swadb was formerly branded **AgentDB** — the GitHub repository URL still reflects the old name.
 
 **Apache-2.0 License — Sultani Investments, LLC**
 
@@ -10,9 +12,9 @@ A sovereign, local-first agent memory system with tiered knowledge, an empirical
 
 ## What It Does
 
-AgentDB gives AI agents persistent, structured memory. It stores what the agent learns across conversations, organizes it into short-term, midterm, and long-term tiers, and retrieves the most relevant context when the agent needs it. The entire system lives in a single portable SQLite file.
+swadb gives AI agents persistent, structured memory. It stores what the agent learns across conversations, organizes it into short-term, midterm, and long-term tiers, and retrieves the most relevant context when the agent needs it. The entire system lives in a single portable SQLite file.
 
-The defining architectural principle is **demand-constructed context**. AgentDB doesn't accumulate conversation history in a growing context window and compress it when the window fills (the accumulate-and-compact model). Instead, every turn constructs a fresh, purpose-built context payload by querying the database for memories, entities, goals, and skills relevant to the current query. Nothing accumulates. Nothing gets compressed. The LLM sees exactly what the retrieval pipeline determines is relevant — scored and ranked across all three tiers, weighted by confidence, recency, and graph proximity. A conversation that runs for six hours gets the same retrieval quality on message 500 as it did on message 5.
+The defining architectural principle is **demand-constructed context**. swadb doesn't accumulate conversation history in a growing context window and compress it when the window fills (the accumulate-and-compact model). Instead, every turn constructs a fresh, purpose-built context payload by querying the database for memories, entities, goals, and skills relevant to the current query. Nothing accumulates. Nothing gets compressed. The LLM sees exactly what the retrieval pipeline determines is relevant — scored and ranked across all three tiers, weighted by confidence, recency, and graph proximity. A conversation that runs for six hours gets the same retrieval quality on message 500 as it did on message 5.
 
 ### Core Capabilities
 
@@ -42,8 +44,6 @@ The defining architectural principle is **demand-constructed context**. AgentDB 
 ---
 
 ## Quick Start
-
-> The PyPI package is named **`swadb`**. The product is branded **AgentDB**. Same software.
 
 ### Prerequisites
 
@@ -248,7 +248,7 @@ All referential integrity for polymorphic associations is enforced through SQLit
 
 ## MCP Server
 
-AgentDB exposes its memory system as MCP tools via [FastMCP](https://github.com/jlowin/fastmcp), supporting both stdio and SSE transports.
+swadb exposes its memory system as MCP tools via [FastMCP](https://github.com/jlowin/fastmcp), supporting both stdio and SSE transports.
 
 **Tools exposed:**
 

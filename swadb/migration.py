@@ -1,5 +1,5 @@
 """
-External Chat Migration Pipeline for AgentDB.
+External Chat Migration Pipeline for swadb.
 
 Implements PRD Section 9:
 - ChatGPT export parser with tree linearization

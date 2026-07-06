@@ -1,5 +1,5 @@
 """
-Embedding generation pipeline for AgentDB.
+Embedding generation pipeline for swadb.
 
 Uses sentence-transformers with the all-MiniLM-L6-v2 model (384 dimensions)
 for local embedding generation with no external API calls.

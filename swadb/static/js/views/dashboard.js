@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.dashboard = {};
+  const V = swadb.views.dashboard = {};
   const el = () => document.getElementById('view-dashboard');
 
   V.load = async function() {
@@ -8,7 +8,7 @@
         <h2>Dashboard</h2>
         <div style="display:flex;gap:8px;align-items:center">
           <label style="font-size:12px;color:var(--text2)">Agent:</label>
-          <select id="agent-selector" onchange="AgentDB.views.dashboard.load()" style="width:160px"></select>
+          <select id="agent-selector" onchange="swadb.views.dashboard.load()" style="width:160px"></select>
         </div>
       </div>
       <div class="stats-grid" id="stats-grid"></div>
@@ -18,17 +18,17 @@
       </div>`;
 
     // Load agents
-    const ar = await AgentDB.api('GET', '/api/agents');
+    const ar = await swadb.api('GET', '/api/agents');
     const sel = document.getElementById('agent-selector');
     if (sel) {
       sel.innerHTML = '<option value="">All Agents</option>';
       if (ar.status === 'ok' && ar.data) {
-        ar.data.forEach(a => { sel.innerHTML += `<option value="${a.id}">${AgentDB.esc(a.name)}</option>`; });
+        ar.data.forEach(a => { sel.innerHTML += `<option value="${a.id}">${swadb.esc(a.name)}</option>`; });
       }
     }
 
     // Load stats
-    const r = await AgentDB.api('GET', '/api/stats');
+    const r = await swadb.api('GET', '/api/stats');
     if (r.status !== 'ok') return;
     const d = r.data;
     const items = [

@@ -1,5 +1,5 @@
 """
-Webhook delivery for AgentDB notifications.
+Webhook delivery for swadb notifications.
 
 Reads `notification_webhook_url` and `notification_priority_threshold` from
 meta_config. Posts undelivered notifications meeting the threshold as JSON

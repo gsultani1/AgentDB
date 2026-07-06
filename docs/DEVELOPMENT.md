@@ -1,4 +1,4 @@
-# AgentDB Development Guide
+# swadb Development Guide
 
 Setup, conventions, workflow reference, and architecture overview for contributors.
 
@@ -41,20 +41,20 @@ pip install sqlcipher3
 
 ```bash
 # Initialize a fresh database
-python -m agentdb.cli init
+python -m swadb.cli init
 
 # Verify the database
-python -m agentdb.cli verify
+python -m swadb.cli verify
 
 # Start the server (HTTP on 8420, MCP SSE on 8421)
-python -m agentdb.cli serve
+python -m swadb.cli serve
 
 # Run with a specific database
-python -m agentdb.cli --db dev.db init
-python -m agentdb.cli --db dev.db serve --port 9000
+python -m swadb.cli --db dev.db init
+python -m swadb.cli --db dev.db serve --port 9000
 
 # Start MCP server in stdio mode (for Claude Desktop)
-python -m agentdb.cli mcp
+python -m swadb.cli mcp
 ```
 
 The management UI is at `http://127.0.0.1:8420/`. The MCP SSE server auto-starts on port 8421.
@@ -65,7 +65,7 @@ The management UI is at `http://127.0.0.1:8420/`. The MCP SSE server auto-starts
 
 ```
 AgentDB/
-├── agentdb/                            # Python backend (19 modules, 11,600+ lines)
+├── swadb/                              # Python backend (19 modules, 11,600+ lines)
 │   ├── __init__.py                     # Package init, version
 │   ├── schema.py                       # Table DDL, triggers, indexes, FTS5 (1,041 lines)
 │   ├── database.py                     # Connection mgmt, init, config seeding, SQLCipher (314 lines)
@@ -138,9 +138,9 @@ No circular imports. Every module depends only on modules below or beside it.
 
 ---
 
-## How AgentDB Remembers Everything
+## How swadb Remembers Everything
 
-The demand-constructed context architecture is what makes AgentDB fundamentally different from systems that accumulate conversation history.
+The demand-constructed context architecture is what makes swadb fundamentally different from systems that accumulate conversation history.
 
 **Memory capture is deterministic.** Every user message and every AI response is automatically ingested into short-term memory with server-side embedding generation. No LLM decision is needed about what to save.
 
@@ -232,14 +232,14 @@ Provider types: `claude`, `openai`, `local` (any OpenAI-compatible endpoint).
 
 ## MCP Integration with Claude Desktop
 
-To connect Claude Desktop to AgentDB's MCP server, add this to your `claude_desktop_config.json`:
+To connect Claude Desktop to swadb's MCP server, add this to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "agentdb": {
+    "swadb": {
       "command": "python",
-      "args": ["-m", "agentdb.cli", "mcp"],
+      "args": ["-m", "swadb.cli", "mcp"],
       "env": {}
     }
   }
@@ -315,16 +315,16 @@ See [API_REFERENCE.md](API_REFERENCE.md) for the full endpoint reference.
 ### Manual verification
 
 ```bash
-python -m agentdb.cli init --force
-python -m agentdb.cli verify
-python -m agentdb.cli stats
+python -m swadb.cli init --force
+python -m swadb.cli verify
+python -m swadb.cli stats
 ```
 
 ### API smoke test
 
 ```bash
 # Start server in background
-python -m agentdb.cli serve &
+python -m swadb.cli serve &
 
 # Health check
 curl http://127.0.0.1:8420/api/agent/health

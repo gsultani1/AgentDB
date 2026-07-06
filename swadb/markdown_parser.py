@@ -1,5 +1,5 @@
 """
-Markdown Authoring Layer for AgentDB.
+Markdown Authoring Layer for swadb.
 
 Implements PRD Section 7:
 - YAML frontmatter parsing and validation

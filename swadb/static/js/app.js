@@ -1,14 +1,14 @@
 /* ============================================================
-   AgentDB — Application Core
+   swadb — Application Core
    All shared state, utilities, and navigation live here.
-   View modules attach themselves to AgentDB.views.
+   View modules attach themselves to swadb.views.
    ============================================================ */
 
-window.AgentDB = window.AgentDB || {};
+window.swadb = window.swadb || {};
 
-AgentDB.views = {};
+swadb.views = {};
 
-AgentDB.state = {
+swadb.state = {
   currentView: 'dashboard',
   sidebarCollapsed: localStorage.getItem('sidebar-collapsed') === 'true',
   currentAgent: '',
@@ -17,17 +17,17 @@ AgentDB.state = {
 /* ---------------------------------------------------------------
    1. API helper
    --------------------------------------------------------------- */
-AgentDB._agentApiKey = null;   // cached agent API key (fetched once on first agent call)
-AgentDB._agentKeyLoaded = false;
+swadb._agentApiKey = null;   // cached agent API key (fetched once on first agent call)
+swadb._agentKeyLoaded = false;
 
-AgentDB._ensureAgentKey = async function () {
-  if (AgentDB._agentKeyLoaded) return;
-  AgentDB._agentKeyLoaded = true;
+swadb._ensureAgentKey = async function () {
+  if (swadb._agentKeyLoaded) return;
+  swadb._agentKeyLoaded = true;
   try {
     var r = await fetch('/api/config/agent_api_key');
     var json = await r.json();
     if (json.status === 'ok' && json.data && json.data.value) {
-      AgentDB._agentApiKey = json.data.value;
+      swadb._agentApiKey = json.data.value;
     }
   } catch (_) { /* key not set or network error — leave null */ }
 };
@@ -36,11 +36,11 @@ AgentDB._ensureAgentKey = async function () {
    Unlock screen — shown when the server is in locked mode (encrypted DB,
    no passphrase yet). Any /api call that returns 423 also pops it.
    ============================================================ */
-AgentDB._unlockShown = false;
+swadb._unlockShown = false;
 
-AgentDB.showUnlockScreen = function (errMsg) {
+swadb.showUnlockScreen = function (errMsg) {
   if (document.getElementById('unlock-overlay')) return; // already up
-  AgentDB._unlockShown = true;
+  swadb._unlockShown = true;
   var overlay = document.createElement('div');
   overlay.id = 'unlock-overlay';
   overlay.style.cssText =
@@ -55,7 +55,7 @@ AgentDB.showUnlockScreen = function (errMsg) {
     '</p>' +
     (errMsg ? '<div style="background:rgba(239,68,68,0.12);border:1px solid var(--red);' +
               'color:var(--red);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px">' +
-              AgentDB.esc(errMsg) + '</div>' : '') +
+              swadb.esc(errMsg) + '</div>' : '') +
     '<input type="password" id="unlock-passphrase" placeholder="Passphrase" autofocus ' +
     'style="width:100%;font-size:14px;padding:8px 10px;margin-bottom:12px">' +
     '<div style="display:flex;gap:8px">' +
@@ -109,7 +109,7 @@ AgentDB.showUnlockScreen = function (errMsg) {
       .catch(function (e) {
         btn.disabled = false;
         btn.textContent = 'Unlock';
-        AgentDB.toast('Network error: ' + e, 'error');
+        swadb.toast('Network error: ' + e, 'error');
       });
   }
   btn.addEventListener('click', attempt);
@@ -118,21 +118,21 @@ AgentDB.showUnlockScreen = function (errMsg) {
   });
 };
 
-AgentDB._checkLockState = function () {
+swadb._checkLockState = function () {
   // Probe the health endpoint. If the server is locked, /api/health returns
   // {data: {locked: true}}.
   return fetch('/api/health').then(function (r) {
     return r.json();
   }).then(function (j) {
     if (j && j.data && j.data.locked) {
-      AgentDB.showUnlockScreen();
+      swadb.showUnlockScreen();
       return true;
     }
     return false;
   }).catch(function () { return false; });
 };
 
-AgentDB.api = async function api(method, path, body) {
+swadb.api = async function api(method, path, body) {
   try {
     var opts = {
       method: method.toUpperCase(),
@@ -144,9 +144,9 @@ AgentDB.api = async function api(method, path, body) {
     }
     // Inject agent API key for /api/agent/* requests
     if (path.indexOf('/api/agent/') === 0) {
-      await AgentDB._ensureAgentKey();
-      if (AgentDB._agentApiKey) {
-        opts.headers['X-API-Key'] = AgentDB._agentApiKey;
+      await swadb._ensureAgentKey();
+      if (swadb._agentApiKey) {
+        opts.headers['X-API-Key'] = swadb._agentApiKey;
       }
     }
     var res = await fetch(path, opts);
@@ -154,7 +154,7 @@ AgentDB.api = async function api(method, path, body) {
     // 423 Locked → pop the unlock screen so the user has a way back in,
     // unless this WAS the unlock call itself.
     if (res.status === 423 && path !== '/api/encryption/unlock') {
-      AgentDB.showUnlockScreen(data && data.error);
+      swadb.showUnlockScreen(data && data.error);
     }
     return data;
   } catch (err) {
@@ -165,7 +165,7 @@ AgentDB.api = async function api(method, path, body) {
 /* ---------------------------------------------------------------
    2. Toast notifications
    --------------------------------------------------------------- */
-AgentDB.toast = function toast(msg, type, duration) {
+swadb.toast = function toast(msg, type, duration) {
   if (type === undefined) type = 'info';
   if (duration === undefined) duration = 3000;
 
@@ -192,7 +192,7 @@ AgentDB.toast = function toast(msg, type, duration) {
 /* ---------------------------------------------------------------
    3. HTML escape
    --------------------------------------------------------------- */
-AgentDB.esc = function esc(s) {
+swadb.esc = function esc(s) {
   var d = document.createElement('div');
   d.textContent = s == null ? '' : String(s);
   return d.innerHTML;
@@ -201,12 +201,12 @@ AgentDB.esc = function esc(s) {
 /* ---------------------------------------------------------------
    4. Copy to clipboard
    --------------------------------------------------------------- */
-AgentDB.copyToClipboard = function copyToClipboard(text) {
+swadb.copyToClipboard = function copyToClipboard(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function () {
-      AgentDB.toast('Copied to clipboard', 'success', 2000);
+      swadb.toast('Copied to clipboard', 'success', 2000);
     }).catch(function () {
-      AgentDB.toast('Failed to copy', 'error', 2000);
+      swadb.toast('Failed to copy', 'error', 2000);
     });
   } else {
     // Fallback
@@ -218,9 +218,9 @@ AgentDB.copyToClipboard = function copyToClipboard(text) {
     ta.select();
     try {
       document.execCommand('copy');
-      AgentDB.toast('Copied to clipboard', 'success', 2000);
+      swadb.toast('Copied to clipboard', 'success', 2000);
     } catch (_) {
-      AgentDB.toast('Failed to copy', 'error', 2000);
+      swadb.toast('Failed to copy', 'error', 2000);
     }
     document.body.removeChild(ta);
   }
@@ -229,7 +229,7 @@ AgentDB.copyToClipboard = function copyToClipboard(text) {
 /* ---------------------------------------------------------------
    5. Confirm dialog (returns Promise<boolean>)
    --------------------------------------------------------------- */
-AgentDB.confirm = function confirmDialog(message) {
+swadb.confirm = function confirmDialog(message) {
   return new Promise(function (resolve) {
     // Remove any existing modal
     var existing = document.querySelector('.modal-overlay.confirm-modal');
@@ -281,7 +281,7 @@ AgentDB.confirm = function confirmDialog(message) {
 /* ---------------------------------------------------------------
    6. Format date
    --------------------------------------------------------------- */
-AgentDB.formatDate = function formatDate(iso) {
+swadb.formatDate = function formatDate(iso) {
   if (!iso) return '';
   var d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
@@ -299,7 +299,7 @@ AgentDB.formatDate = function formatDate(iso) {
 /* ---------------------------------------------------------------
    7. Truncate
    --------------------------------------------------------------- */
-AgentDB.truncate = function truncate(text, len) {
+swadb.truncate = function truncate(text, len) {
   if (len === undefined) len = 100;
   if (!text) return '';
   text = String(text);
@@ -310,7 +310,7 @@ AgentDB.truncate = function truncate(text, len) {
 /* ---------------------------------------------------------------
    8. Markdown renderer
    --------------------------------------------------------------- */
-AgentDB.renderMarkdown = function renderMarkdown(text) {
+swadb.renderMarkdown = function renderMarkdown(text) {
   if (!text) return '';
   var html = text;
 
@@ -413,10 +413,10 @@ AgentDB.renderMarkdown = function renderMarkdown(text) {
   // ---- Phase 5: restore code blocks ----
   html = html.replace(/\x00CODEBLOCK(\d+)\x00/g, function (_, idx) {
     var info = codeBlocks[parseInt(idx, 10)];
-    var escaped = AgentDB.esc(info.code.replace(/\n$/, ''));
+    var escaped = swadb.esc(info.code.replace(/\n$/, ''));
     var langLabel = info.lang ? info.lang : 'code';
-    return '<div class="code-header"><span class="code-lang">' + AgentDB.esc(langLabel) +
-      '</span><button class="code-copy" onclick="AgentDB.copyToClipboard(this.closest(\'.code-header\').nextElementSibling.textContent)">Copy</button></div>' +
+    return '<div class="code-header"><span class="code-lang">' + swadb.esc(langLabel) +
+      '</span><button class="code-copy" onclick="swadb.copyToClipboard(this.closest(\'.code-header\').nextElementSibling.textContent)">Copy</button></div>' +
       '<pre class="has-header"><code>' + escaped + '</code></pre>';
   });
 
@@ -426,7 +426,7 @@ AgentDB.renderMarkdown = function renderMarkdown(text) {
 /* ---------------------------------------------------------------
    9. Navigate
    --------------------------------------------------------------- */
-AgentDB.navigate = function navigate(viewName) {
+swadb.navigate = function navigate(viewName) {
   if (!viewName) viewName = 'dashboard';
 
   // Hide all views
@@ -451,18 +451,18 @@ AgentDB.navigate = function navigate(viewName) {
   });
 
   // Update state and hash
-  AgentDB.state.currentView = viewName;
+  swadb.state.currentView = viewName;
   if (location.hash !== '#' + viewName) {
     history.replaceState(null, '', '#' + viewName);
   }
 
   // Expand the sidebar group containing this view
-  if (typeof AgentDB._expandActiveGroup === 'function') {
-    AgentDB._expandActiveGroup(viewName);
+  if (typeof swadb._expandActiveGroup === 'function') {
+    swadb._expandActiveGroup(viewName);
   }
 
   // Close mobile nav only if navigating from a nav link click (not on initial load)
-  if (AgentDB._closeNavOnNavigate) {
+  if (swadb._closeNavOnNavigate) {
     var nav = document.getElementById('sidebar');
     var overlay = document.getElementById('sidebar-overlay');
     if (nav) nav.classList.remove('open');
@@ -470,15 +470,15 @@ AgentDB.navigate = function navigate(viewName) {
   }
 
   // Call view loader
-  if (AgentDB.views[viewName] && typeof AgentDB.views[viewName].load === 'function') {
-    AgentDB.views[viewName].load();
+  if (swadb.views[viewName] && typeof swadb.views[viewName].load === 'function') {
+    swadb.views[viewName].load();
   }
 };
 
 /* ---------------------------------------------------------------
    10. Toggle Sidebar
    --------------------------------------------------------------- */
-AgentDB.toggleSidebar = function toggleSidebar() {
+swadb.toggleSidebar = function toggleSidebar() {
   var isMobile = window.innerWidth <= 768;
 
   if (isMobile) {
@@ -489,7 +489,7 @@ AgentDB.toggleSidebar = function toggleSidebar() {
   } else {
     document.body.classList.toggle('sidebar-collapsed');
     var collapsed = document.body.classList.contains('sidebar-collapsed');
-    AgentDB.state.sidebarCollapsed = collapsed;
+    swadb.state.sidebarCollapsed = collapsed;
     localStorage.setItem('sidebar-collapsed', collapsed ? 'true' : 'false');
   }
 };
@@ -497,7 +497,7 @@ AgentDB.toggleSidebar = function toggleSidebar() {
 /* ---------------------------------------------------------------
    11. Show loading skeleton
    --------------------------------------------------------------- */
-AgentDB.showLoading = function showLoading(containerId) {
+swadb.showLoading = function showLoading(containerId) {
   var el = document.getElementById(containerId);
   if (!el) return;
   el.innerHTML =
@@ -512,7 +512,7 @@ AgentDB.showLoading = function showLoading(containerId) {
 /* ---------------------------------------------------------------
    12. Hide loading
    --------------------------------------------------------------- */
-AgentDB.hideLoading = function hideLoading(containerId) {
+swadb.hideLoading = function hideLoading(containerId) {
   var el = document.getElementById(containerId);
   if (!el) return;
   // Remove only skeleton elements
@@ -523,8 +523,8 @@ AgentDB.hideLoading = function hideLoading(containerId) {
 /* ---------------------------------------------------------------
    Notification badge polling
    --------------------------------------------------------------- */
-AgentDB._pollNotifications = function pollNotifications() {
-  AgentDB.api('GET', '/api/notifications?read=0&limit=100').then(function (res) {
+swadb._pollNotifications = function pollNotifications() {
+  swadb.api('GET', '/api/notifications?read=0&limit=100').then(function (res) {
     var badge = document.getElementById('notif-badge');
     if (!badge) return;
     if (res && res.status === 'ok' && res.data && res.data.length > 0) {
@@ -542,7 +542,7 @@ AgentDB._pollNotifications = function pollNotifications() {
 // Apply theme. Reads localStorage first for instant paint (no FOUC),
 // then refreshes from server config in case the user changed it on
 // another machine. theme_preference values: "auto" | "light" | "dark".
-AgentDB.applyTheme = function (pref) {
+swadb.applyTheme = function (pref) {
   if (pref === 'dark') {
     document.documentElement.setAttribute('data-theme', 'dark');
   } else if (pref === 'light') {
@@ -553,25 +553,25 @@ AgentDB.applyTheme = function (pref) {
   }
   try { localStorage.setItem('theme-preference', pref || 'auto'); } catch (_) {}
 };
-AgentDB.applyTheme(localStorage.getItem('theme-preference') || 'auto');
+swadb.applyTheme(localStorage.getItem('theme-preference') || 'auto');
 
 document.addEventListener('DOMContentLoaded', function () {
   // First thing: check if the server is locked. If yes, the unlock modal
   // shows and the user can't do anything else until they enter the
   // passphrase. (No await — we let the rest of the boot run; if locked, the
   // overlay sits on top and intercepts.)
-  AgentDB._checkLockState();
+  swadb._checkLockState();
 
   // Apply sidebar state
-  if (AgentDB.state.sidebarCollapsed && window.innerWidth > 768) {
+  if (swadb.state.sidebarCollapsed && window.innerWidth > 768) {
     document.body.classList.add('sidebar-collapsed');
   }
 
   // Sync theme from server config (handles cross-device changes; falls
   // back to whatever localStorage already applied above).
-  AgentDB.api('GET', '/api/config/theme_preference').then(function (r) {
+  swadb.api('GET', '/api/config/theme_preference').then(function (r) {
     if (r.status === 'ok' && r.data && r.data.value) {
-      AgentDB.applyTheme(r.data.value);
+      swadb.applyTheme(r.data.value);
     }
   });
 
@@ -592,7 +592,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // Auto-expand the group containing the active view
-  AgentDB._expandActiveGroup = function (viewName) {
+  swadb._expandActiveGroup = function (viewName) {
     document.querySelectorAll('.nav-group').forEach(function (g) {
       g.classList.remove('has-active');
       var activeLink = g.querySelector('a[data-view="' + viewName + '"]');
@@ -607,9 +607,9 @@ document.addEventListener('DOMContentLoaded', function () {
   navLinks.forEach(function (link) {
     link.addEventListener('click', function (e) {
       e.preventDefault();
-      AgentDB._closeNavOnNavigate = true;
-      AgentDB.navigate(link.getAttribute('data-view'));
-      AgentDB._closeNavOnNavigate = false;
+      swadb._closeNavOnNavigate = true;
+      swadb.navigate(link.getAttribute('data-view'));
+      swadb._closeNavOnNavigate = false;
     });
   });
 
@@ -621,14 +621,14 @@ document.addEventListener('DOMContentLoaded', function () {
   var navToggle = document.querySelector('.nav-toggle');
   if (navToggle) {
     navToggle.addEventListener('click', function () {
-      AgentDB.toggleSidebar();
+      swadb.toggleSidebar();
     });
   }
 
   // Hash-based navigation
   function onHash() {
     var hash = location.hash.slice(1);
-    AgentDB.navigate(hash || 'dashboard');
+    swadb.navigate(hash || 'dashboard');
   }
   window.addEventListener('hashchange', onHash);
 
@@ -636,11 +636,11 @@ document.addEventListener('DOMContentLoaded', function () {
   onHash();
 
   // Poll notification badge every 60 seconds
-  AgentDB._pollNotifications();
-  setInterval(AgentDB._pollNotifications, 60000);
+  swadb._pollNotifications();
+  setInterval(swadb._pollNotifications, 60000);
 
   // ── Keyboard shortcuts (Vim/GitHub-style two-key navigation) ──
-  AgentDB._installKeyboardShortcuts();
+  swadb._installKeyboardShortcuts();
 });
 
 /* ============================================================
@@ -651,7 +651,7 @@ document.addEventListener('DOMContentLoaded', function () {
    - Esc closes help overlay
    - Ignored while typing in input/textarea/contenteditable (except Esc)
    ============================================================ */
-AgentDB._gShortcuts = {
+swadb._gShortcuts = {
   d: 'dashboard',
   m: 'memories',
   c: 'chat',
@@ -670,7 +670,7 @@ AgentDB._gShortcuts = {
   r: 'threads',     // th(r)eads
 };
 
-AgentDB._installKeyboardShortcuts = function () {
+swadb._installKeyboardShortcuts = function () {
   var gPending = false;
   var gTimer = null;
 
@@ -690,8 +690,8 @@ AgentDB._installKeyboardShortcuts = function () {
   document.addEventListener('keydown', function (e) {
     // Esc always works (closes help overlay or entity drawer)
     if (e.key === 'Escape') {
-      AgentDB._closeShortcutHelp();
-      AgentDB._closeEntityDetail();
+      swadb._closeShortcutHelp();
+      swadb._closeEntityDetail();
       clearGPrefix();
       return;
     }
@@ -703,11 +703,11 @@ AgentDB._installKeyboardShortcuts = function () {
     var k = e.key;
 
     if (gPending) {
-      var target = AgentDB._gShortcuts[k.toLowerCase()];
+      var target = swadb._gShortcuts[k.toLowerCase()];
       clearGPrefix();
       if (target) {
         e.preventDefault();
-        AgentDB.navigate(target);
+        swadb.navigate(target);
       }
       return;
     }
@@ -719,7 +719,7 @@ AgentDB._installKeyboardShortcuts = function () {
     }
     if (k === '?') {
       e.preventDefault();
-      AgentDB._openShortcutHelp();
+      swadb._openShortcutHelp();
       return;
     }
     if (k === '/') {
@@ -738,14 +738,14 @@ AgentDB._installKeyboardShortcuts = function () {
   });
 };
 
-AgentDB._openShortcutHelp = function () {
+swadb._openShortcutHelp = function () {
   if (document.getElementById('shortcut-help-overlay')) return;
-  var entries = Object.keys(AgentDB._gShortcuts).map(function (k) {
-    return { key: 'G ' + k.toUpperCase(), label: AgentDB._gShortcuts[k] };
+  var entries = Object.keys(swadb._gShortcuts).map(function (k) {
+    return { key: 'G ' + k.toUpperCase(), label: swadb._gShortcuts[k] };
   });
   var rows = entries.map(function (e) {
     return '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">' +
-           AgentDB.esc(e.key) + '</td><td>' + AgentDB.esc(e.label) + '</td></tr>';
+           swadb.esc(e.key) + '</td><td>' + swadb.esc(e.label) + '</td></tr>';
   }).join('');
   rows += '<tr><td colspan="2" style="padding-top:10px;color:var(--text2);font-size:11px">— Other —</td></tr>';
   rows += '<tr><td style="font-family:var(--mono);padding:4px 12px 4px 0">?</td><td>Show this help</td></tr>';
@@ -771,14 +771,14 @@ AgentDB._openShortcutHelp = function () {
     'Press <kbd>?</kbd> any time outside a text input to reopen this.</div>' +
     '</div>';
   overlay.addEventListener('click', function (e) {
-    if (e.target === overlay) AgentDB._closeShortcutHelp();
+    if (e.target === overlay) swadb._closeShortcutHelp();
   });
   document.body.appendChild(overlay);
   var closeBtn = document.getElementById('shortcut-help-close');
-  if (closeBtn) closeBtn.addEventListener('click', AgentDB._closeShortcutHelp);
+  if (closeBtn) closeBtn.addEventListener('click', swadb._closeShortcutHelp);
 };
 
-AgentDB._closeShortcutHelp = function () {
+swadb._closeShortcutHelp = function () {
   var o = document.getElementById('shortcut-help-overlay');
   if (o) o.remove();
 };
@@ -787,11 +787,11 @@ AgentDB._closeShortcutHelp = function () {
    Entity detail drawer
    Right-side slide-in drawer with tabs:
      Overview / Memories / Relations / Co-occurring
-   Reusable from any view via AgentDB.openEntityDetail(entityId).
+   Reusable from any view via swadb.openEntityDetail(entityId).
    ============================================================ */
-AgentDB.openEntityDetail = async function (entityId) {
+swadb.openEntityDetail = async function (entityId) {
   if (!entityId) return;
-  AgentDB._closeEntityDetail();
+  swadb._closeEntityDetail();
 
   var overlay = document.createElement('div');
   overlay.id = 'entity-detail-overlay';
@@ -806,17 +806,17 @@ AgentDB.openEntityDetail = async function (entityId) {
     '<div style="display:flex;align-items:center;gap:10px">' +
     '<h3 style="margin:0">Entity</h3>' +
     '<span style="color:var(--text2);font-size:12px;font-family:var(--mono)">' +
-    AgentDB.esc(entityId.slice(0, 8)) + '</span></div>' +
+    swadb.esc(entityId.slice(0, 8)) + '</span></div>' +
     '<button class="btn btn-sm" id="entity-detail-close">Close</button>' +
     '</div>' +
     '<div id="entity-detail-body"><div class="spinner"></div></div>' +
     '</div>';
   overlay.addEventListener('click', function (e) {
-    if (e.target === overlay) AgentDB._closeEntityDetail();
+    if (e.target === overlay) swadb._closeEntityDetail();
   });
   document.body.appendChild(overlay);
   document.getElementById('entity-detail-close').addEventListener(
-    'click', AgentDB._closeEntityDetail);
+    'click', swadb._closeEntityDetail);
 
   // Inject keyframes once
   if (!document.getElementById('entity-detail-anim')) {
@@ -829,23 +829,23 @@ AgentDB.openEntityDetail = async function (entityId) {
     document.head.appendChild(st);
   }
 
-  var r = await AgentDB.api('GET', '/api/entities/' + encodeURIComponent(entityId) + '/detail');
+  var r = await swadb.api('GET', '/api/entities/' + encodeURIComponent(entityId) + '/detail');
   var body = document.getElementById('entity-detail-body');
   if (!body) return; // closed before fetch resolved
   if (r.status !== 'ok' || !r.data) {
     body.innerHTML = '<div style="color:var(--red);font-size:13px">' +
-      AgentDB.esc(r.error || 'Failed to load entity') + '</div>';
+      swadb.esc(r.error || 'Failed to load entity') + '</div>';
     return;
   }
-  AgentDB._renderEntityDetail(body, r.data);
+  swadb._renderEntityDetail(body, r.data);
 };
 
-AgentDB._closeEntityDetail = function () {
+swadb._closeEntityDetail = function () {
   var o = document.getElementById('entity-detail-overlay');
   if (o) o.remove();
 };
 
-AgentDB._renderEntityDetail = function (body, data) {
+swadb._renderEntityDetail = function (body, data) {
   var ent = data.entity || {};
   var memories = data.memories || [];
   var relations = data.relations || [];
@@ -863,7 +863,7 @@ AgentDB._renderEntityDetail = function (body, data) {
               : tier === 'midterm' ? '#8b5cf6' : '#3b82f6';
     return '<span style="background:' + color + ';color:#fff;padding:1px 6px;' +
            'border-radius:6px;font-size:10px;font-family:var(--mono)">' +
-           AgentDB.esc(tier) + '</span>';
+           swadb.esc(tier) + '</span>';
   }
 
   var html = '';
@@ -871,30 +871,30 @@ AgentDB._renderEntityDetail = function (body, data) {
   // ── Overview ──
   html += '<div style="background:var(--bg3);padding:12px;border-radius:6px;margin-bottom:12px">';
   html += '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">';
-  html += '<input type="text" id="ent-name" value="' + AgentDB.esc(ent.canonical_name || '') +
+  html += '<input type="text" id="ent-name" value="' + swadb.esc(ent.canonical_name || '') +
           '" style="font-size:18px;font-weight:600;border:none;background:transparent;flex:1;min-width:200px;padding:4px 6px;border-radius:4px" title="Click to edit canonical name">';
   if (ent.entity_type) {
     html += '<span style="background:var(--bg2);padding:2px 8px;border-radius:8px;font-size:11px;font-family:var(--mono)">' +
-            AgentDB.esc(ent.entity_type) + '</span>';
+            swadb.esc(ent.entity_type) + '</span>';
   }
   html += '</div>';
 
   html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;margin-top:8px">';
   if (ent.first_seen) {
-    html += '<div style="color:var(--text2)">First seen:</div><div>' + AgentDB.esc(ent.first_seen) + '</div>';
+    html += '<div style="color:var(--text2)">First seen:</div><div>' + swadb.esc(ent.first_seen) + '</div>';
   }
   if (ent.last_seen) {
-    html += '<div style="color:var(--text2)">Last seen:</div><div>' + AgentDB.esc(ent.last_seen) + '</div>';
+    html += '<div style="color:var(--text2)">Last seen:</div><div>' + swadb.esc(ent.last_seen) + '</div>';
   }
   if (ent.created_at) {
-    html += '<div style="color:var(--text2)">Created:</div><div>' + AgentDB.esc(ent.created_at) + '</div>';
+    html += '<div style="color:var(--text2)">Created:</div><div>' + swadb.esc(ent.created_at) + '</div>';
   }
   html += '</div>';
 
   // Aliases (editable)
   html += '<div style="margin-top:10px">';
   html += '<div style="font-size:12px;color:var(--text2);margin-bottom:4px">Aliases (comma-separated)</div>';
-  html += '<input type="text" id="ent-aliases" value="' + AgentDB.esc(aliases.join(', ')) +
+  html += '<input type="text" id="ent-aliases" value="' + swadb.esc(aliases.join(', ')) +
           '" style="width:100%;font-size:13px" placeholder="No aliases">';
   html += '</div>';
 
@@ -925,13 +925,13 @@ AgentDB._renderEntityDetail = function (body, data) {
     memories.forEach(function (m) {
       var content = m.content || '';
       if (content.length > 240) content = content.substring(0, 240) + '…';
-      html += '<div class="ent-memory-row" data-tier="' + AgentDB.esc(m.tier) + '" style="background:var(--bg3);padding:8px 10px;border-radius:6px;margin-bottom:6px">';
+      html += '<div class="ent-memory-row" data-tier="' + swadb.esc(m.tier) + '" style="background:var(--bg3);padding:8px 10px;border-radius:6px;margin-bottom:6px">';
       html += '<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px">';
       html += tierBadge(m.tier);
       html += '<span style="font-size:11px;color:var(--text2)">' +
-              AgentDB.esc(m.created_at || m.timestamp || '') + '</span>';
+              swadb.esc(m.created_at || m.timestamp || '') + '</span>';
       html += '</div>';
-      html += '<div style="font-size:12px;line-height:1.4">' + AgentDB.esc(content) + '</div>';
+      html += '<div style="font-size:12px;line-height:1.4">' + swadb.esc(content) + '</div>';
       if (typeof m.confidence === 'number') {
         html += '<div style="font-size:11px;color:var(--text2);margin-top:2px">confidence: ' +
                 m.confidence.toFixed(2) + '</div>';
@@ -952,15 +952,15 @@ AgentDB._renderEntityDetail = function (body, data) {
       html += '<div style="background:var(--bg3);padding:8px 10px;border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">';
       html += '<div style="flex:1;min-width:0">';
       html += '<div style="font-size:13px"><span style="font-family:var(--mono);font-size:11px;background:var(--bg2);padding:1px 6px;border-radius:4px">' +
-              AgentDB.esc(rel.relation_type || rel.edge_type || 'related') + '</span> ' +
-              AgentDB.esc(rel.other_name || rel.other_id || '') + '</div>';
+              swadb.esc(rel.relation_type || rel.edge_type || 'related') + '</span> ' +
+              swadb.esc(rel.other_name || rel.other_id || '') + '</div>';
       html += '<div style="font-size:11px;color:var(--text2)">' +
-              'target: ' + AgentDB.esc(rel.other_table || '') +
+              'target: ' + swadb.esc(rel.other_table || '') +
               ' • weight ' + weight + '</div>';
       html += '</div>';
       // Drill into another entity if the other side is an entity
       if (rel.other_table === 'entities') {
-        html += '<button class="btn btn-sm" data-open-entity="' + AgentDB.esc(rel.other_id) + '">Open</button>';
+        html += '<button class="btn btn-sm" data-open-entity="' + swadb.esc(rel.other_id) + '">Open</button>';
       }
       html += '</div>';
     });
@@ -975,15 +975,15 @@ AgentDB._renderEntityDetail = function (body, data) {
     coOccurring.forEach(function (co) {
       var e = co.entity || {};
       html += '<div style="background:var(--bg3);padding:8px 10px;border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">';
-      html += '<div><b>' + AgentDB.esc(e.canonical_name || e.id) + '</b>';
+      html += '<div><b>' + swadb.esc(e.canonical_name || e.id) + '</b>';
       if (e.entity_type) {
         html += ' <span style="font-size:11px;color:var(--text2);font-family:var(--mono)">' +
-                AgentDB.esc(e.entity_type) + '</span>';
+                swadb.esc(e.entity_type) + '</span>';
       }
       html += '<div style="font-size:11px;color:var(--text2)">co-occurs in ' +
               co.co_occurrence_count + ' memor' +
               (co.co_occurrence_count === 1 ? 'y' : 'ies') + '</div></div>';
-      html += '<button class="btn btn-sm" data-open-entity="' + AgentDB.esc(e.id) + '">Open</button>';
+      html += '<button class="btn btn-sm" data-open-entity="' + swadb.esc(e.id) + '">Open</button>';
       html += '</div>';
     });
   }
@@ -1020,7 +1020,7 @@ AgentDB._renderEntityDetail = function (body, data) {
   // Wire drill-down
   body.querySelectorAll('[data-open-entity]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      AgentDB.openEntityDetail(btn.dataset.openEntity);
+      swadb.openEntityDetail(btn.dataset.openEntity);
     });
   });
 
@@ -1031,23 +1031,23 @@ AgentDB._renderEntityDetail = function (body, data) {
     var aliasStr = document.getElementById('ent-aliases').value.trim();
     var aliasArr = aliasStr ? aliasStr.split(',').map(function (a) { return a.trim(); }).filter(Boolean) : [];
     var payload = { canonical_name: newName, aliases: aliasArr };
-    var r = await AgentDB.api('PUT', '/api/entities/' + encodeURIComponent(ent.id), payload);
+    var r = await swadb.api('PUT', '/api/entities/' + encodeURIComponent(ent.id), payload);
     if (r.status === 'ok') {
-      AgentDB.toast('Entity updated', 'success');
-      AgentDB.openEntityDetail(ent.id); // reload with fresh data
+      swadb.toast('Entity updated', 'success');
+      swadb.openEntityDetail(ent.id); // reload with fresh data
     } else {
-      AgentDB.toast('Update failed: ' + (r.error || 'unknown'), 'error');
+      swadb.toast('Update failed: ' + (r.error || 'unknown'), 'error');
     }
   });
   var delBtn = document.getElementById('ent-delete');
   if (delBtn) delBtn.addEventListener('click', async function () {
     if (!confirm('Delete this entity? Relations and references remain in place but the entity record will be removed.')) return;
-    var r = await AgentDB.api('DELETE', '/api/entities/' + encodeURIComponent(ent.id));
+    var r = await swadb.api('DELETE', '/api/entities/' + encodeURIComponent(ent.id));
     if (r.status === 'ok') {
-      AgentDB.toast('Entity deleted', 'success');
-      AgentDB._closeEntityDetail();
+      swadb.toast('Entity deleted', 'success');
+      swadb._closeEntityDetail();
     } else {
-      AgentDB.toast('Delete failed: ' + (r.error || 'unknown'), 'error');
+      swadb.toast('Delete failed: ' + (r.error || 'unknown'), 'error');
     }
   });
 };

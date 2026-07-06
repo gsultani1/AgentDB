@@ -1,5 +1,5 @@
 """
-Consolidation Engine for AgentDB.
+Consolidation Engine for swadb.
 
 Implements PRD Section 8:
 - Short-to-midterm consolidation with configurable clustering threshold

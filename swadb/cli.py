@@ -1,5 +1,5 @@
 """
-Command-line interface for AgentDB.
+Command-line interface for swadb.
 
 Provides commands for database initialization, schema verification,
 configuration management, and manual memory operations.
@@ -19,7 +19,7 @@ DEFAULT_DB_PATH = Path("swadb.db")
 
 
 def cmd_init(args):
-    """Initialize a new AgentDB database."""
+    """Initialize a new swadb database."""
     db_path = Path(args.db)
     if db_path.exists() and not args.force:
         print(f"Database already exists at {db_path}. Use --force to reinitialize.")
@@ -110,7 +110,7 @@ def cmd_stats(args):
         ("views", "Saved views"),
         ("query_cache", "Query cache entries"),
     ]
-    print("AgentDB Statistics")
+    print("swadb Statistics")
     print("=" * 40)
     for table, label in tables:
         count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -211,7 +211,7 @@ def cmd_session_end(args):
 
 
 def cmd_serve(args):
-    """Start the AgentDB HTTP server."""
+    """Start the swadb HTTP server."""
     db_path = Path(args.db)
     if not db_path.exists():
         print(f"Database not found at {db_path}. Run 'swadb init' first.")
@@ -389,7 +389,7 @@ def build_parser():
     """Build the argument parser."""
     parser = argparse.ArgumentParser(
         prog="swadb",
-        description="AgentDB - Sovereign Agent Memory System",
+        description="swadb - Sovereign Agent Memory System",
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}",
@@ -496,7 +496,7 @@ def build_parser():
 
 
 def main():
-    """Entry point for the AgentDB CLI."""
+    """Entry point for the swadb CLI."""
     parser = build_parser()
     args = parser.parse_args()
 

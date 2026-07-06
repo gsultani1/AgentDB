@@ -1,4 +1,4 @@
-# AgentDB Architecture
+# swadb Architecture
 
 Technical architecture reference. Current as of v1.6 implementation.
 
@@ -6,7 +6,7 @@ Technical architecture reference. Current as of v1.6 implementation.
 
 ## System Layers
 
-AgentDB is composed of four layers. Each layer has a single responsibility and communicates with adjacent layers through well-defined interfaces.
+swadb is composed of four layers. Each layer has a single responsibility and communicates with adjacent layers through well-defined interfaces.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -35,9 +35,9 @@ AgentDB is composed of four layers. Each layer has a single responsibility and c
 
 ## Core Architectural Principle: Demand-Constructed Context
 
-AgentDB does not carry conversation history forward between turns. Every turn constructs context fresh from the database.
+swadb does not carry conversation history forward between turns. Every turn constructs context fresh from the database.
 
-The middleware receives a user message, queries AgentDB for relevant memories, entities, goals, and skills via the multi-strategy retrieval pipeline, formats the results for the configured LLM provider, calls the LLM, ingests both user message and AI response into short-term memory, creates a context snapshot for audit, and returns the response. No conversation history accumulates. No compaction occurs.
+The middleware receives a user message, queries swadb for relevant memories, entities, goals, and skills via the multi-strategy retrieval pipeline, formats the results for the configured LLM provider, calls the LLM, ingests both user message and AI response into short-term memory, creates a context snapshot for audit, and returns the response. No conversation history accumulates. No compaction occurs.
 
 This eliminates the entire class of failures that plague accumulate-and-compact systems: lost instructions, forgotten constraints, degraded recall over long sessions. A conversation on turn 500 has the same retrieval quality as turn 5.
 
@@ -58,7 +58,7 @@ Tables organized into five groups:
 
 ### `database.py` — Initialization and Connection (314 lines)
 
-Database creation, schema installation, trigger installation, FTS5 setup, default config seeding (80+ values), default agent creation. Provides `get_connection()` which configures WAL mode and foreign keys. Includes SQLCipher detection and passphrase handling via `AGENTDB_PASSPHRASE` environment variable. Provides `verify_schema()`, `encryption_status()`, and `rekey_database()`.
+Database creation, schema installation, trigger installation, FTS5 setup, default config seeding (80+ values), default agent creation. Provides `get_connection()` which configures WAL mode and foreign keys. Includes SQLCipher detection and passphrase handling via the `SWADB_PASSPHRASE` environment variable (`AGENTDB_PASSPHRASE` is accepted as a deprecated fallback). Provides `verify_schema()`, `encryption_status()`, and `rekey_database()`.
 
 ### `crud.py` — Data Access (2,250 lines)
 
@@ -106,7 +106,7 @@ Context snapshots are automatically captured on every retrieval, recording all m
 
 Provider-agnostic middleware implementing the demand-constructed context pipeline:
 1. Receives user message
-2. Queries AgentDB for context via `context.py`
+2. Queries swadb for context via `context.py`
 3. Retrieves identity/directive memories
 4. Formats context for the configured provider
 5. Calls the LLM API
@@ -367,7 +367,7 @@ All three memory tables carry an `agent_id` column (default: `"default"`). The `
 
 The `src-tauri/` directory contains a Tauri 2.x desktop wrapper:
 
-- **Sidecar spawning**: Launches the Python HTTP server via `agentdb.cli serve`
+- **Sidecar spawning**: Launches the Python HTTP server via `swadb.cli serve`
 - **Health monitoring**: Checks `/api/health` periodically; restarts sidecar after consecutive failures
 - **System tray**: Menu with show, health check, restart, and quit options
 - **Auto-init**: Creates database if missing on first launch

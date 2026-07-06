@@ -1,5 +1,5 @@
 """
-HTTP server for AgentDB.
+HTTP server for swadb.
 
 Serves both the Operator API (/api/) and Agent API (/api/agent/)
 on localhost. All responses use a consistent {status, data, error} envelope.
@@ -197,8 +197,8 @@ def _channel_to_api(ch):
     return ch
 
 
-class AgentDBHandler(BaseHTTPRequestHandler):
-    """Request handler for all AgentDB API endpoints."""
+class SwadbHandler(BaseHTTPRequestHandler):
+    """Request handler for all swadb API endpoints."""
 
     def log_message(self, format, *args):
         """Override to use simpler logging."""
@@ -923,7 +923,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     "id": "test",
                     "agent_id": "default",
                     "trigger_type": "consolidation_complete",
-                    "title": "AgentDB webhook test",
+                    "title": "swadb webhook test",
                     "body": "If you can read this, your webhook is wired up.",
                     "priority": "medium",
                     "related_ids": None,
@@ -1182,7 +1182,7 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 tables = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL").fetchall()
                 schema_text = "\n".join([t[0] for t in tables])
                 system_prompt = (
-                    "You are a SQLite query generator for AgentDB. Given the schema below, "
+                    "You are a SQLite query generator for swadb. Given the schema below, "
                     "generate ONLY a SQL SELECT query to answer the user's question. "
                     "Return ONLY the SQL query, no explanation, no markdown fences.\n\nSchema:\n" + schema_text
                 )
@@ -3004,7 +3004,7 @@ def is_locked():
 
 def run_server(db_path, host="127.0.0.1", port=8420):
     """
-    Start the AgentDB HTTP server.
+    Start the swadb HTTP server.
 
     If the DB on disk is encrypted and no passphrase is available (env or
     runtime), the server starts in LOCKED mode: only `/api/encryption/unlock`,
@@ -3032,8 +3032,8 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     else:
         _bootstrap_db_dependent_services(db_path)
 
-    server = HTTPServer((host, port), AgentDBHandler)
-    print(f"AgentDB server running at http://{host}:{port}")
+    server = HTTPServer((host, port), SwadbHandler)
+    print(f"swadb server running at http://{host}:{port}")
     print(f"Database: {db_path}")
     print(f"Operator API: http://{host}:{port}/api/")
     print(f"Agent API:    http://{host}:{port}/api/agent/")
@@ -3042,7 +3042,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down AgentDB server...")
+        print("\nShutting down swadb server...")
         if _file_watcher:
             _file_watcher.stop()
             print("File watcher stopped")

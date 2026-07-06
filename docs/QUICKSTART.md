@@ -1,4 +1,4 @@
-# AgentDB Quick Start
+# swadb Quick Start
 
 Build a persistent agent personality in five minutes.
 
@@ -25,25 +25,25 @@ The embedding model (~90 MB) downloads automatically on first use.
 ## 2. Initialize a Database
 
 ```bash
-python -m agentdb.cli init
+python -m swadb.cli init
 ```
 
-This creates `agentdb.db` with all tables, triggers, indexes, FTS5 virtual tables, default configuration, and a default agent.
+This creates `swadb.db` with all tables, triggers, indexes, FTS5 virtual tables, default configuration, and a default agent.
 
 Verify it worked:
 
 ```bash
-python -m agentdb.cli verify
+python -m swadb.cli verify
 # Expected: "Schema verification passed. All tables present."
 
-python -m agentdb.cli stats
+python -m swadb.cli stats
 # Expected: Row counts for all tables (mostly zeros)
 ```
 
 ## 3. Start the Server
 
 ```bash
-python -m agentdb.cli serve
+python -m swadb.cli serve
 ```
 
 Open `http://127.0.0.1:8420` in your browser. You'll see the management dashboard.
@@ -139,7 +139,7 @@ The agent's response will reference Hetzner and self-hosted infrastructure becau
 Stop the server (`Ctrl+C`), then restart it:
 
 ```bash
-python -m agentdb.cli serve
+python -m swadb.cli serve
 ```
 
 Send a follow-up message:
@@ -159,7 +159,7 @@ After the server has been running for 5+ minutes (configurable via `consolidatio
 Check progress:
 
 ```bash
-python -m agentdb.cli stats
+python -m swadb.cli stats
 ```
 
 You'll see entries appearing in midterm and long-term memory that you didn't create directly — the system consolidated them from your conversations.

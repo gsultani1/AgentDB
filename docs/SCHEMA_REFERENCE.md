@@ -1,4 +1,4 @@
-# AgentDB Schema Reference
+# swadb Schema Reference
 
 Complete field-level reference for all database tables. Current as of v1.6 implementation.
 
@@ -63,7 +63,7 @@ Bedrock knowledge. High confidence threshold for entry. Periodic revalidation.
 
 ### agents
 
-Registry of all agents using this AgentDB instance.
+Registry of all agents using this swadb instance.
 
 | Field | Type | Constraints | Description |
 |-------|------|-------------|-------------|

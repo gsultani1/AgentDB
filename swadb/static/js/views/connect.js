@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.connect = {};
+  const V = swadb.views.connect = {};
   const el = () => document.getElementById('view-connect');
 
   const ENDPOINTS = [
@@ -105,7 +105,7 @@ console.log("Response:", chat.response);`
   };
 
   V.load = async function() {
-    var health = await AgentDB.api('GET', '/api/health');
+    var health = await swadb.api('GET', '/api/health');
     var isUp = health && health.status === 'ok';
     var badge = isUp
       ? '<span style="background:#22c55e;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">Connected</span>'
@@ -115,21 +115,21 @@ console.log("Response:", chat.response);`
     var endpointRows = ENDPOINTS.map(function(ep) {
       var color = ep.method === 'GET' ? '#3b82f6' : ep.method === 'POST' ? '#22c55e' : '#f59e0b';
       return '<tr><td><span style="background:' + color + ';color:#fff;padding:1px 8px;border-radius:4px;font-size:11px;font-weight:600">' +
-        ep.method + '</span></td><td style="font-family:var(--mono);font-size:13px">' + AgentDB.esc(ep.path) +
-        '</td><td>' + AgentDB.esc(ep.desc) +
-        '</td><td style="font-family:var(--mono);font-size:11px;color:var(--text2)">' + AgentDB.esc(ep.body) + '</td></tr>';
+        ep.method + '</span></td><td style="font-family:var(--mono);font-size:13px">' + swadb.esc(ep.path) +
+        '</td><td>' + swadb.esc(ep.desc) +
+        '</td><td style="font-family:var(--mono);font-size:11px;color:var(--text2)">' + swadb.esc(ep.body) + '</td></tr>';
     }).join('');
 
     el().innerHTML = `
-      <h2 style="margin-bottom:16px">Connect to AgentDB</h2>
+      <h2 style="margin-bottom:16px">Connect to swadb</h2>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <h3>API Status</h3>${badge}
         </div>
         <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
           <span style="color:var(--text2);font-size:13px">Base URL:</span>
-          <code style="background:var(--bg3);padding:4px 12px;border-radius:4px;font-size:13px" id="connect-base-url">${AgentDB.esc(baseUrl)}</code>
-          <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('connect-base-url').textContent);AgentDB.toast('Copied!','success')" style="font-size:12px;padding:4px 10px">Copy</button>
+          <code style="background:var(--bg3);padding:4px 12px;border-radius:4px;font-size:13px" id="connect-base-url">${swadb.esc(baseUrl)}</code>
+          <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('connect-base-url').textContent);swadb.toast('Copied!','success')" style="font-size:12px;padding:4px 10px">Copy</button>
         </div>
       </div>
 
@@ -144,11 +144,11 @@ console.log("Response:", chat.response);`
       <div class="card" style="margin-top:16px">
         <h3>Code Examples</h3>
         <div style="display:flex;gap:8px;margin-top:12px;margin-bottom:12px">
-          <button class="btn connect-tab active" data-lang="curl" onclick="AgentDB.views.connect.switchTab('curl')">cURL</button>
-          <button class="btn connect-tab" data-lang="python" onclick="AgentDB.views.connect.switchTab('python')">Python</button>
-          <button class="btn connect-tab" data-lang="js" onclick="AgentDB.views.connect.switchTab('js')">JavaScript</button>
+          <button class="btn connect-tab active" data-lang="curl" onclick="swadb.views.connect.switchTab('curl')">cURL</button>
+          <button class="btn connect-tab" data-lang="python" onclick="swadb.views.connect.switchTab('python')">Python</button>
+          <button class="btn connect-tab" data-lang="js" onclick="swadb.views.connect.switchTab('js')">JavaScript</button>
         </div>
-        <pre id="connect-code" style="background:var(--bg1);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.5;max-height:420px;overflow-y:auto"><code>${AgentDB.esc(CODE_EXAMPLES.curl)}</code></pre>
+        <pre id="connect-code" style="background:var(--bg1);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.5;max-height:420px;overflow-y:auto"><code>${swadb.esc(CODE_EXAMPLES.curl)}</code></pre>
       </div>`;
   };
 
@@ -156,6 +156,6 @@ console.log("Response:", chat.response);`
     document.querySelectorAll('.connect-tab').forEach(function(b) {
       b.classList.toggle('active', b.getAttribute('data-lang') === lang);
     });
-    document.getElementById('connect-code').innerHTML = '<code>' + AgentDB.esc(CODE_EXAMPLES[lang]) + '</code>';
+    document.getElementById('connect-code').innerHTML = '<code>' + swadb.esc(CODE_EXAMPLES[lang]) + '</code>';
   };
 })();
