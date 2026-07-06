@@ -178,6 +178,25 @@ def _match(pattern, path):
     return None
 
 
+def _channel_to_api(ch):
+    """
+    Map a channel_configs row to the HTTP shape: parse the config JSON
+    column, mask credentials, and expose is_active as 'enabled'.
+    """
+    if not ch:
+        return ch
+    raw = ch.get("config")
+    try:
+        config = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except ValueError:
+        config = {}
+    if isinstance(config, dict) and config.get("credentials"):
+        config["credentials"] = "****"
+    ch["config"] = config
+    ch["enabled"] = bool(ch.get("is_active"))
+    return ch
+
+
 class AgentDBHandler(BaseHTTPRequestHandler):
     """Request handler for all AgentDB API endpoints."""
 
@@ -664,16 +683,15 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                     return _json_response(self, 200, data=ex)
                 return _json_response(self, 404, error="Skill execution not found")
             if path == "/api/channels":
-                channels = crud.list_channel_configs(conn)
-                return _json_response(self, 200, data=channels)
+                active_only = qp.get("include_inactive", ["false"])[0] != "true"
+                channels = crud.list_channel_configs(conn, active_only=active_only)
+                return _json_response(self, 200,
+                                      data=[_channel_to_api(ch) for ch in channels])
             m = _match("/api/channels/{id}", path)
             if m:
                 ch = crud.get_channel_config(conn, m["id"])
                 if ch:
-                    # Mask credentials
-                    if ch.get("credentials"):
-                        ch["credentials"] = "****"
-                    return _json_response(self, 200, data=ch)
+                    return _json_response(self, 200, data=_channel_to_api(ch))
                 return _json_response(self, 404, error="Channel not found")
             m = _match("/api/channels/{id}/messages", path)
             if m:
@@ -1326,26 +1344,45 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 name = body.get("name", "")
                 if not channel_type or not name:
                     return _json_response(self, 400, error="'channel_type' and 'name' are required")
+                # Mirrors the schema CHECK — reject here so bad input is a
+                # 400, not an IntegrityError 500.
+                if channel_type not in ("email", "whatsapp", "imessage", "sms"):
+                    return _json_response(self, 400, error="'channel_type' must be one of: email, whatsapp, imessage, sms")
+                # 'credentials' and 'settings' are HTTP conveniences stored
+                # as sub-keys of the config JSON column.
+                config = body.get("config") if isinstance(body.get("config"), dict) else {}
+                if body.get("credentials") is not None:
+                    config["credentials"] = body["credentials"]
+                if body.get("settings") is not None:
+                    config["settings"] = body["settings"]
                 cid = crud.create_channel_config(
-                    conn, channel_type, name,
-                    credentials=body.get("credentials"),
-                    settings=body.get("settings"),
+                    conn, name, channel_type, config,
                     agent_id=body.get("agent_id", "default"),
+                    authorized_senders=body.get("authorized_senders"),
+                    polling_interval_seconds=body.get("polling_interval_seconds", 60),
+                    is_default_notification=body.get("is_default_notification", False),
                 )
                 return _json_response(self, 201, data={"id": cid})
 
             m = _match("/api/channels/{id}/messages", path)
             if m:
+                # channel_id has no FK constraint — guard here so orphan
+                # messages can't be created against a deleted channel.
+                if not crud.get_channel_config(conn, m["id"]):
+                    return _json_response(self, 404, error="Channel not found")
                 direction = body.get("direction", "outbound")
+                if direction not in ("inbound", "outbound"):
+                    return _json_response(self, 400, error="'direction' must be 'inbound' or 'outbound'")
                 content = body.get("content", "")
                 if not content:
                     return _json_response(self, 400, error="'content' is required")
                 mid = crud.create_channel_message(
                     conn, m["id"], direction, content,
-                    external_id=body.get("external_id"),
                     sender=body.get("sender"),
                     recipient=body.get("recipient"),
-                    metadata=body.get("metadata"),
+                    raw_payload=body.get("raw_payload") or body.get("metadata"),
+                    session_id=body.get("session_id"),
+                    task_id=body.get("task_id"),
                 )
                 return _json_response(self, 201, data={"id": mid})
 
@@ -1608,10 +1645,36 @@ class AgentDBHandler(BaseHTTPRequestHandler):
                 return _json_response(self, 200, data={"id": m["id"], "priority": priority})
             m = _match("/api/channels/{id}", path)
             if m:
+                existing = crud.get_channel_config(conn, m["id"])
+                if not existing:
+                    return _json_response(self, 404, error="Channel not found")
+                # Whitelist maps HTTP keys to real channel_configs columns —
+                # crud.update_channel_config interpolates kwarg names into SQL.
                 updates = {}
-                for key in ("name", "credentials", "settings", "enabled"):
+                for key in ("name", "authorized_senders",
+                            "polling_interval_seconds", "is_default_notification"):
                     if key in body:
                         updates[key] = body[key]
+                if "enabled" in body:
+                    updates["is_active"] = 1 if body["enabled"] else 0
+                # 'credentials'/'settings' merge into the existing config JSON
+                # so updating one doesn't wipe the other.
+                if any(k in body for k in ("config", "credentials", "settings")):
+                    try:
+                        config = json.loads(existing.get("config") or "{}")
+                    except ValueError:
+                        config = {}
+                    if not isinstance(config, dict):
+                        config = {}
+                    if isinstance(body.get("config"), dict):
+                        config.update(body["config"])
+                    if "credentials" in body:
+                        config["credentials"] = body["credentials"]
+                    if "settings" in body:
+                        config["settings"] = body["settings"]
+                    updates["config"] = config
+                if not updates:
+                    return _json_response(self, 400, error="No valid fields to update")
                 crud.update_channel_config(conn, m["id"], **updates)
                 return _json_response(self, 200, data={"id": m["id"], "updated": True})
             m = _match("/api/tasks/{id}", path)
