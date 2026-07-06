@@ -113,7 +113,7 @@ AgentDB/
 ├── README.md
 ├── requirements.txt                    # Python deps: sentence-transformers, numpy, mcp
 ├── package.json                        # Tauri CLI config
-├── swadb/                              # Python backend (19 modules, 11,600+ lines)
+├── swadb/                              # Python backend (23 modules, 14,000+ lines)
 │   ├── __init__.py                     # Package init, version
 │   ├── schema.py                       # Table DDL, triggers, indexes, FTS5
 │   ├── database.py                     # Connection management, init, SQLCipher support
@@ -131,7 +131,7 @@ AgentDB/
 │   ├── workspace_scanner.py           # Workspace file scanning and embedding
 │   ├── mcp_server.py                  # FastMCP server (9 tools, SSE+stdio, crash recovery)
 │   ├── scheduler.py                   # Interval-based task runner
-│   ├── server.py                      # HTTP server with 60+ API endpoints
+│   ├── server.py                      # HTTP server with 100+ API endpoints
 │   ├── cli.py                         # Command-line interface
 │   └── static/                        # Management UI
 │       ├── index.html                 # SPA shell
@@ -167,7 +167,7 @@ AgentDB/
 └── docs/
     ├── QUICKSTART.md                  # 5-minute getting started tutorial
     ├── ARCHITECTURE.md                # System architecture deep dive
-    ├── API_REFERENCE.md               # Full API endpoint reference (60+ endpoints)
+    ├── API_REFERENCE.md               # Full API endpoint reference (100+ endpoints)
     ├── SCHEMA_REFERENCE.md            # Database schema details (30+ tables)
     └── DEVELOPMENT.md                 # Development setup and contribution guide
 ```
@@ -447,11 +447,11 @@ Both modes use the identical `.db` file. A database created in one mode works in
 | Component | Technology |
 |-----------|------------|
 | Database | SQLite 3 with WAL mode, FTS5, optional SQLCipher encryption |
-| Backend | Python 3.11+ (no web framework — built on `http.server`) |
-| Embeddings | sentence-transformers 3.3.1 / all-MiniLM-L6-v2 (384 dimensions, local) |
-| Vector math | numpy 2.2.3 |
+| Backend | Python 3.10+ (no web framework — built on `http.server`) |
+| Embeddings | sentence-transformers >= 3.0 / all-MiniLM-L6-v2 (384 dimensions, local) |
+| Vector math | numpy >= 1.24 |
 | MCP | FastMCP (mcp >= 1.0.0) with stdio and SSE transports |
-| UI | Modular SPA — HTML + CSS + vanilla ES6 JavaScript (15 view modules) |
+| UI | Modular SPA — HTML + CSS + vanilla ES6 JavaScript (18 view modules) |
 | Desktop shell | Tauri 2.x (Rust core, native webview, sidecar management) |
 
 ---
@@ -462,9 +462,11 @@ Detailed documentation is in the [`docs/`](docs/) directory:
 
 - [QUICKSTART.md](docs/QUICKSTART.md) — Build a persistent agent personality in 5 minutes
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — System layers, module map, data flows, and design principles
-- [API_REFERENCE.md](docs/API_REFERENCE.md) — Full HTTP endpoint reference (60+ endpoints)
+- [API_REFERENCE.md](docs/API_REFERENCE.md) — Full HTTP endpoint reference (100+ endpoints)
 - [SCHEMA_REFERENCE.md](docs/SCHEMA_REFERENCE.md) — Database table definitions (30+ tables)
 - [DEVELOPMENT.md](docs/DEVELOPMENT.md) — Development setup, MCP integration, and contribution guide
+
+Package-user documentation (installation, configuration, HTTP API, MCP, CLI, extras, troubleshooting) is in [`api_documentation/`](api_documentation/).
 
 ---
 

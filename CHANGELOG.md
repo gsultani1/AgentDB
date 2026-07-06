@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-07-05
+
+Metadata correction, CI fixes, bug fixes surfaced by the new HTTP-level
+integration suite, and the suite itself.
+
 ### Added
 - **`swadb --version` flag** (argparse-native; `swadb` and `swadb --help`
   already showed the version inline).
@@ -19,12 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`api_documentation/troubleshooting.md`** — seven common failure modes
   with copy-pasteable fixes.
 - README: CI/PyPI/Python/license badges; corrected two stale "MIT"
-  references (the license is Apache-2.0).
-
-## [0.1.2] — 2026-07-05
-
-Metadata correction, CI fixes, and three bug fixes surfaced by the new
-HTTP-level integration suite.
+  references (the license is Apache-2.0) and refreshed stale
+  module/endpoint/view counts.
 
 ### Fixed
 - **`POST /api/memories/pin` 500'd on every call**: the handler forwarded
