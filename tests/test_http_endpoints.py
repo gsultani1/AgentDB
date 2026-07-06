@@ -748,6 +748,124 @@ def test_ollama_discover_dead_endpoint(server):
 
 
 # ══════════════════════════════════════════════════════════════
+# Channels
+# ══════════════════════════════════════════════════════════════
+
+def test_channel_lifecycle(server):
+    name = _uniq("channel")
+    # Regression guard: POST used to 500 on every call — the handler passed
+    # (channel_type, name) swapped plus credentials=/settings= kwargs that
+    # crud.create_channel_config doesn't accept. HTTP 'credentials' and
+    # 'settings' now land as sub-keys of the config JSON column.
+    created = _ok(server, "POST", "/api/channels",
+                  {"name": name, "channel_type": "email",
+                   "credentials": {"imap_password": "hunter2"},
+                   "settings": {"folder": "INBOX"}},
+                  expect=201)
+    ch_id = created["id"]
+
+    listed = _ok(server, "GET", "/api/channels")
+    ours = [c for c in listed if c["id"] == ch_id]
+    assert len(ours) == 1
+    assert ours[0]["name"] == name
+    assert ours[0]["channel_type"] == "email"
+    assert ours[0]["enabled"] is True
+
+    detail = _ok(server, "GET", f"/api/channels/{ch_id}")
+    assert detail["name"] == name
+    assert detail["config"]["credentials"] == "****"
+    assert detail["config"]["settings"] == {"folder": "INBOX"}
+    # Credentials must not leak from either the detail or the list endpoint
+    # (list used to return the config column unmasked).
+    assert "hunter2" not in json.dumps(detail)
+    assert "hunter2" not in json.dumps(listed)
+
+    # Regression guard: PUT used to forward credentials/settings/enabled as
+    # kwargs, which update_channel_config turns into "SET enabled = ?" —
+    # no such columns -> OperationalError 500.
+    updated = _ok(server, "PUT", f"/api/channels/{ch_id}",
+                  {"name": name + "2", "settings": {"folder": "Archive"}})
+    assert updated == {"id": ch_id, "updated": True}
+    detail = _ok(server, "GET", f"/api/channels/{ch_id}")
+    assert detail["name"] == name + "2"
+    assert detail["config"]["settings"] == {"folder": "Archive"}
+    # Merge, not replace: credentials survive a settings-only update.
+    assert detail["config"]["credentials"] == "****"
+
+    # 'enabled' is the HTTP alias for the is_active column.
+    _ok(server, "PUT", f"/api/channels/{ch_id}", {"enabled": False})
+    detail = _ok(server, "GET", f"/api/channels/{ch_id}")
+    assert detail["enabled"] is False
+    # Disabled channels drop out of the default list...
+    listed = _ok(server, "GET", "/api/channels")
+    assert not any(c["id"] == ch_id for c in listed)
+    # ...but stay reachable with ?include_inactive=true.
+    listed = _ok(server, "GET", "/api/channels?include_inactive=true")
+    assert any(c["id"] == ch_id for c in listed)
+
+    deleted = _ok(server, "DELETE", f"/api/channels/{ch_id}")
+    assert deleted == {"deleted": ch_id}
+    status, _ = _call(server, "GET", f"/api/channels/{ch_id}")
+    assert status == 404
+
+
+def test_channel_validation(server):
+    status, _ = _call(server, "POST", "/api/channels", {"name": _uniq("ch")})
+    assert status == 400  # channel_type required
+
+    # Schema CHECK constraint surfaced as a 400, not an IntegrityError 500.
+    status, _ = _call(server, "POST", "/api/channels",
+                      {"name": _uniq("ch"), "channel_type": "carrier-pigeon"})
+    assert status == 400
+
+    status, _ = _call(server, "PUT", f"/api/channels/{_uniq('missing')}",
+                      {"name": "x"})
+    assert status == 404
+
+
+def test_channel_messages(server):
+    ch_id = _ok(server, "POST", "/api/channels",
+                {"name": _uniq("msg-channel"), "channel_type": "sms"},
+                expect=201)["id"]
+
+    # Regression guard: handler used to pass external_id=/metadata= kwargs
+    # that crud.create_channel_message doesn't accept -> 500. 'metadata'
+    # now maps to the raw_payload column.
+    created = _ok(server, "POST", f"/api/channels/{ch_id}/messages",
+                  {"direction": "outbound", "content": "hello out",
+                   "recipient": "+15550001111", "metadata": {"k": "v"}},
+                  expect=201)
+    assert isinstance(created["id"], str)
+    _ok(server, "POST", f"/api/channels/{ch_id}/messages",
+        {"direction": "inbound", "content": "hello in",
+         "sender": "+15550002222"}, expect=201)
+
+    msgs = _ok(server, "GET", f"/api/channels/{ch_id}/messages?limit=50")
+    assert len(msgs) == 2
+
+    # Regression guard: ?direction= used to 500 (kwarg missing from
+    # crud.list_channel_messages).
+    inbound = _ok(server, "GET",
+                  f"/api/channels/{ch_id}/messages?direction=inbound")
+    assert [m["content"] for m in inbound] == ["hello in"]
+
+    status, _ = _call(server, "POST", f"/api/channels/{ch_id}/messages", {})
+    assert status == 400  # content required
+    status, _ = _call(server, "POST", f"/api/channels/{ch_id}/messages",
+                      {"content": "x", "direction": "sideways"})
+    assert status == 400  # direction CHECK surfaced as 400
+    status, _ = _call(server, "POST",
+                      f"/api/channels/{_uniq('missing')}/messages",
+                      {"content": "orphan"})
+    assert status == 404  # no orphan messages against deleted channels
+
+    # DELETE cascades messages via the schema trigger.
+    _ok(server, "DELETE", f"/api/channels/{ch_id}")
+    msgs = _ok(server, "GET", f"/api/channels/{ch_id}/messages")
+    assert msgs == []
+
+
+# ══════════════════════════════════════════════════════════════
 # Notifications
 # ══════════════════════════════════════════════════════════════
 

@@ -1993,12 +1993,15 @@ def create_channel_message(conn, channel_id, direction, content, sender=None,
     return mid
 
 
-def list_channel_messages(conn, channel_id, limit=100, offset=0):
-    return _rows_to_list(conn.execute(
-        """SELECT * FROM channel_messages WHERE channel_id = ?
-           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-        (channel_id, limit, offset),
-    ).fetchall())
+def list_channel_messages(conn, channel_id, limit=100, offset=0, direction=None):
+    query = "SELECT * FROM channel_messages WHERE channel_id = ?"
+    params = [channel_id]
+    if direction:
+        query += " AND direction = ?"
+        params.append(direction)
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return _rows_to_list(conn.execute(query, params).fetchall())
 
 
 # ═══════════════════════════════════════════════════════════════════
