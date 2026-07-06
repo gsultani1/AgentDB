@@ -80,23 +80,6 @@ def _uniq(prefix):
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
-def _embedding_model_cached():
-    # If the model is already in the HF cache, force offline mode in the
-    # server subprocess: a blocked/failed hub revision check would otherwise
-    # poison loading a perfectly good cached model. If it's not cached, leave
-    # the env alone so a networked machine can download it.
-    candidates = [
-        os.environ.get("HF_HUB_CACHE", ""),
-        os.path.join(os.environ.get("HF_HOME", ""), "hub"),
-        os.path.expanduser("~/.cache/huggingface/hub"),
-    ]
-    for cache in candidates:
-        if cache and os.path.isdir(
-                os.path.join(cache, "models--sentence-transformers--all-MiniLM-L6-v2")):
-            return True
-    return False
-
-
 # ══════════════════════════════════════════════════════════════
 # Fixtures
 # ══════════════════════════════════════════════════════════════
@@ -115,10 +98,8 @@ def server(tmp_path_factory):
     crud.set_config(conn, "scheduler_enabled", "false")
     conn.close()
 
+    # Inherits the HF offline vars conftest sets when the model is cached.
     env = dict(os.environ)
-    if _embedding_model_cached():
-        env["HF_HUB_OFFLINE"] = "1"
-        env["TRANSFORMERS_OFFLINE"] = "1"
 
     port = _free_port()
     log_path = root / "server.log"
@@ -180,12 +161,12 @@ def embeddings(server):
     """
     Gate embedding tests on the server's model warmup having FINISHED.
 
-    embeddings.get_model() has no lock, so an embedding request that lands
-    while the warmup daemon thread is still mid-load races torch into a
-    "Cannot copy out of meta tensor" error that can poison the process for
-    good. The warmup thread prints a completion line either way, so wait
-    for it in the captured server log before sending the first embedding
-    request. Tests that embed depend on this fixture.
+    get_model() is lock-guarded now, so the old double-load poisoning can't
+    happen — but waiting for the warmup completion line keeps the first
+    embedding test from stalling behind a cold model load, and the probe
+    ingest below skips the embedding suite cleanly when the model can't
+    load at all (e.g. uncached machine with no network). Tests that embed
+    depend on this fixture.
     """
     deadline = time.time() + 180
     while time.time() < deadline:
@@ -462,9 +443,10 @@ def test_goal_lifecycle(server, embeddings):
 # Skills + executions
 # ══════════════════════════════════════════════════════════════
 
-def _make_skill(server):
+def _make_skill(server, description=None):
     return _ok(server, "POST", "/api/skills",
-               {"name": _uniq("skill"), "description": _uniq("does a thing")},
+               {"name": _uniq("skill"),
+                "description": description or _uniq("does a thing")},
                expect=201, timeout=60)["id"]
 
 
@@ -526,14 +508,17 @@ def test_agent_skill_execute(server, embeddings):
 
 
 def test_agent_skill_match(server, embeddings):
-    skill_id = _make_skill(server)
+    # Query with the exact created description: any similarity threshold or
+    # top-K cutoff still has to return the ~1.0-cosine match, so the test
+    # can't pass vacuously on an always-empty matcher and can't flake on
+    # the random _uniq suffix.
+    desc = _uniq("matchable skill that reverses strings")
+    skill_id = _make_skill(server, description=desc)
     data = _ok(server, "POST", "/api/agent/skill/match",
-               {"description": "does a thing"}, timeout=60)
+               {"description": desc}, timeout=60)
     assert isinstance(data, list)
     for row in data:
         assert "similarity_score" in row
-    # Not just shape: the near-identical-description skill created above
-    # must actually match, or an always-empty matcher passes vacuously.
     assert any(row.get("id") == skill_id or row.get("skill_id") == skill_id
                for row in data)
 
