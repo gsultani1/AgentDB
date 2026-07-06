@@ -1,5 +1,5 @@
 """
-File attachment processing for AgentDB v1.5.
+File attachment processing for swadb v1.5.
 
 Handles file upload, content extraction, chunking, and ingestion into
 short-term memory. Supports PDF, plain text, code files, and CSV.

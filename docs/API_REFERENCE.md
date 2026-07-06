@@ -1,4 +1,4 @@
-# AgentDB API Reference
+# swadb API Reference
 
 All endpoints are served on `http://127.0.0.1:8420` by default. All responses use the envelope `{ status, data, error }`. Content-Type is `application/json` for all requests and responses.
 

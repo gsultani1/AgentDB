@@ -18,10 +18,20 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 fn resolve_data_dir() -> PathBuf {
-    // Use %APPDATA%/AgentDB (or equivalent) for persistent data
+    // Use %APPDATA%/swadb (or equivalent) for persistent data
     let base = dirs::data_dir()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let dir = base.join("AgentDB");
+    let dir = base.join("swadb");
+    // One-shot migration from the pre-rebrand location: if the new dir has
+    // no database yet but %APPDATA%/AgentDB does, adopt the old directory
+    // wholesale so an existing install keeps its memory.
+    let legacy = base.join("AgentDB");
+    if !dir.join("swadb.db").exists() && legacy.join("swadb.db").exists() {
+        let _ = std::fs::remove_dir(&dir); // only removes an empty leftover
+        if std::fs::rename(&legacy, &dir).is_ok() {
+            println!("[swadb] migrated data dir from {:?} to {:?}", legacy, dir);
+        }
+    }
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -143,9 +153,9 @@ fn start_health_monitor(sidecar: Arc<Mutex<SidecarState>>, _app_handle: AppHandl
             let port = state.port;
 
             if !state.is_alive() {
-                println!("[AgentDB] Sidecar process died. Restarting...");
+                println!("[swadb] Sidecar process died. Restarting...");
                 if let Err(e) = state.spawn() {
-                    eprintln!("[AgentDB] Failed to restart sidecar: {}", e);
+                    eprintln!("[swadb] Failed to restart sidecar: {}", e);
                 }
                 drop(state);
                 thread::sleep(Duration::from_secs(3));
@@ -154,11 +164,11 @@ fn start_health_monitor(sidecar: Arc<Mutex<SidecarState>>, _app_handle: AppHandl
             drop(state);
 
             if !health_check(port) {
-                println!("[AgentDB] Health check failed. Restarting sidecar...");
+                println!("[swadb] Health check failed. Restarting sidecar...");
                 let mut state = sidecar.lock().unwrap();
                 state.kill();
                 if let Err(e) = state.spawn() {
-                    eprintln!("[AgentDB] Failed to restart sidecar: {}", e);
+                    eprintln!("[swadb] Failed to restart sidecar: {}", e);
                 }
             }
         }
@@ -179,7 +189,7 @@ fn main() {
             {
                 let mut state = sidecar_clone.lock().unwrap();
                 if let Err(e) = state.spawn() {
-                    eprintln!("[AgentDB] Initial sidecar spawn failed: {}", e);
+                    eprintln!("[swadb] Initial sidecar spawn failed: {}", e);
                 }
             }
 
@@ -189,7 +199,7 @@ fn main() {
             start_health_monitor(monitor_sidecar, monitor_handle);
 
             // Build system tray
-            let show = MenuItemBuilder::with_id("show", "Show AgentDB").build(app)?;
+            let show = MenuItemBuilder::with_id("show", "Show swadb").build(app)?;
             let health = MenuItemBuilder::with_id("health", "Check Health").build(app)?;
             let restart = MenuItemBuilder::with_id("restart", "Restart Sidecar").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -205,7 +215,7 @@ fn main() {
 
             let tray_sidecar = sidecar_clone.clone();
             let _tray = TrayIconBuilder::new()
-                .tooltip("AgentDB")
+                .tooltip("swadb")
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
@@ -218,13 +228,13 @@ fn main() {
                         "health" => {
                             let state = tray_sidecar.lock().unwrap();
                             let ok = health_check(state.port);
-                            println!("[AgentDB] Health: {}", if ok { "OK" } else { "FAILED" });
+                            println!("[swadb] Health: {}", if ok { "OK" } else { "FAILED" });
                         }
                         "restart" => {
                             let mut state = tray_sidecar.lock().unwrap();
                             state.kill();
                             if let Err(e) = state.spawn() {
-                                eprintln!("[AgentDB] Restart failed: {}", e);
+                                eprintln!("[swadb] Restart failed: {}", e);
                             }
                         }
                         "quit" => {
@@ -240,10 +250,10 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error building AgentDB")
+        .expect("error building swadb")
         .run(move |_app_handle, event| {
             if let RunEvent::ExitRequested { .. } = event {
-                println!("[AgentDB] Shutting down sidecar...");
+                println!("[swadb] Shutting down sidecar...");
                 let mut state = sidecar.lock().unwrap();
                 state.kill();
             }

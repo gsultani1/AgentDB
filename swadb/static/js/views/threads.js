@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.threads = {};
+  const V = swadb.views.threads = {};
   const el = () => document.getElementById('view-threads');
 
   V.load = async function() {
@@ -18,7 +18,7 @@
   async function loadThreads() {
     const container = document.getElementById('threads-list');
     container.innerHTML = '<div class="loading">Loading projects...</div>';
-    const res = await AgentDB.api('GET', '/api/threads?limit=100');
+    const res = await swadb.api('GET', '/api/threads?limit=100');
     if (!res || res.error) {
       container.innerHTML = '<div class="empty">No projects found</div>';
       return;
@@ -29,21 +29,21 @@
       return;
     }
     container.innerHTML = threads.map(t => `
-      <div class="card thread-card" data-id="${AgentDB.esc(t.id)}">
+      <div class="card thread-card" data-id="${swadb.esc(t.id)}">
         <div class="card-header">
-          <strong>${AgentDB.esc(t.name)}</strong>
+          <strong>${swadb.esc(t.name)}</strong>
           <span class="badge badge-${t.status === 'active' ? 'green' : 'gray'}">${t.status || 'active'}</span>
         </div>
         <div class="card-meta">
-          ${t.summary ? `<div>${AgentDB.esc(t.summary)}</div>` : ''}
-          <span>Agent: ${AgentDB.esc(t.agent_id || 'default')}</span>
-          <span>Created: ${AgentDB.formatDate(t.created_at)}</span>
-          ${t.last_active ? `<span>Last active: ${AgentDB.formatDate(t.last_active)}</span>` : ''}
+          ${t.summary ? `<div>${swadb.esc(t.summary)}</div>` : ''}
+          <span>Agent: ${swadb.esc(t.agent_id || 'default')}</span>
+          <span>Created: ${swadb.formatDate(t.created_at)}</span>
+          ${t.last_active ? `<span>Last active: ${swadb.formatDate(t.last_active)}</span>` : ''}
         </div>
         <div class="card-actions">
-          <button class="btn btn-sm btn-primary" onclick="AgentDB.views.threads.chatInProject('${t.id}')">Chat</button>
-          <button class="btn btn-sm" onclick="AgentDB.views.threads.viewThread('${t.id}')">View</button>
-          <button class="btn btn-sm btn-danger" onclick="AgentDB.views.threads.deleteThread('${t.id}')">Delete</button>
+          <button class="btn btn-sm btn-primary" onclick="swadb.views.threads.chatInProject('${t.id}')">Chat</button>
+          <button class="btn btn-sm" onclick="swadb.views.threads.viewThread('${t.id}')">View</button>
+          <button class="btn btn-sm btn-danger" onclick="swadb.views.threads.deleteThread('${t.id}')">Delete</button>
         </div>
       </div>
     `).join('');
@@ -71,17 +71,17 @@
     `;
     document.getElementById('thread-create-btn').addEventListener('click', async () => {
       const name = document.getElementById('thread-name').value.trim();
-      if (!name) return AgentDB.toast('Name is required', 'error');
-      const res = await AgentDB.api('POST', '/api/threads', {
+      if (!name) return swadb.toast('Name is required', 'error');
+      const res = await swadb.api('POST', '/api/threads', {
         name,
         description: document.getElementById('thread-desc').value.trim() || undefined,
       });
       if (res && !res.error) {
-        AgentDB.toast('Project created', 'success');
+        swadb.toast('Project created', 'success');
         container.style.display = 'none';
         await loadThreads();
       } else {
-        AgentDB.toast(res?.error || 'Failed to create project', 'error');
+        swadb.toast(res?.error || 'Failed to create project', 'error');
       }
     });
   }
@@ -90,24 +90,24 @@
     const container = document.getElementById('threads-detail');
     container.style.display = 'block';
     container.innerHTML = '<div class="loading">Loading project...</div>';
-    const res = await AgentDB.api('GET', `/api/threads/${id}`);
-    const msgs = await AgentDB.api('GET', `/api/threads/${id}/messages?limit=50`);
+    const res = await swadb.api('GET', `/api/threads/${id}`);
+    const msgs = await swadb.api('GET', `/api/threads/${id}/messages?limit=50`);
     const thread = res?.data || res;
     const messages = msgs?.data || msgs || [];
     container.innerHTML = `
       <div class="card">
         <div class="card-header">
-          <h3>${AgentDB.esc(thread?.name || id)}</h3>
+          <h3>${swadb.esc(thread?.name || id)}</h3>
           <button class="btn btn-sm" onclick="document.getElementById('threads-detail').style.display='none'">Close</button>
         </div>
-        ${thread?.summary ? `<p class="text-secondary">${AgentDB.esc(thread.summary)}</p>` : ''}
+        ${thread?.summary ? `<p class="text-secondary">${swadb.esc(thread.summary)}</p>` : ''}
         <h4>Messages (${messages.length})</h4>
         <div class="thread-messages">
           ${messages.length ? messages.map(m => `
             <div class="thread-msg">
-              <span class="text-secondary">${AgentDB.formatDate(m.timestamp || m.created_at)}</span>
+              <span class="text-secondary">${swadb.formatDate(m.timestamp || m.created_at)}</span>
               <span class="badge">${m.source || m.role || 'message'}</span>
-              <div>${AgentDB.esc((m.content || '').substring(0, 300))}</div>
+              <div>${swadb.esc((m.content || '').substring(0, 300))}</div>
             </div>
           `).join('') : '<div class="empty">No messages in this project yet.</div>'}
         </div>
@@ -116,17 +116,17 @@
   };
 
   V.chatInProject = function(id) {
-    AgentDB.state.chatThreadId = id;
-    AgentDB.state.chatSessionId = null;
-    AgentDB.state.chatHistory = [];
-    AgentDB.navigate('chat');
+    swadb.state.chatThreadId = id;
+    swadb.state.chatSessionId = null;
+    swadb.state.chatHistory = [];
+    swadb.navigate('chat');
   };
 
   V.deleteThread = async function(id) {
     if (!confirm('Delete this project?')) return;
-    const res = await AgentDB.api('DELETE', `/api/threads/${id}`);
+    const res = await swadb.api('DELETE', `/api/threads/${id}`);
     if (res && !res.error) {
-      AgentDB.toast('Project deleted', 'success');
+      swadb.toast('Project deleted', 'success');
       await loadThreads();
     }
   };

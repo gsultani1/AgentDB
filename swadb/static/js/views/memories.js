@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.memories = {};
+  const V = swadb.views.memories = {};
   const el = () => document.getElementById('view-memories');
   let currentTier = 'short';
 
@@ -156,7 +156,7 @@
   }
 
   async function loadMemories() {
-    const r = await AgentDB.api('GET', `/api/memories/${currentTier}`);
+    const r = await swadb.api('GET', `/api/memories/${currentTier}`);
     if (r.status !== 'ok') {
       document.getElementById('mem-table-wrap').innerHTML = '<p style="color:var(--text2)">Failed to load memories.</p>';
       return;
@@ -169,7 +169,7 @@
     const query = document.getElementById('mem-search-input').value.trim();
     if (!query) return;
     document.getElementById('mem-clear-btn').style.display = 'inline-block';
-    const r = await AgentDB.api('POST', '/api/memories/search', {
+    const r = await swadb.api('POST', '/api/memories/search', {
       query: query,
       tiers: [currentTier],
       limit: 20
@@ -204,31 +204,31 @@
 
     const rows = memories.map(m => {
       const id = (m.id || '').substring(0, 8);
-      const content = AgentDB.truncate(AgentDB.esc(m.content || ''), 100);
-      const created = AgentDB.formatDate(m.created_at || '').substring(0, 16);
+      const content = swadb.truncate(swadb.esc(m.content || ''), 100);
+      const created = swadb.formatDate(m.created_at || '').substring(0, 16);
       const cat = m.category || '';
       const tier = m.tier || currentTier;
       const checked = V._selected.has(m.id) ? 'checked' : '';
       const cols = isSTM ? 6 : 7;
 
       return `
-        <tr class="mem-row" data-id="${AgentDB.esc(m.id)}" data-tier="${tier}">
-          <td><input type="checkbox" class="mem-row-cb" data-id="${AgentDB.esc(m.id)}" ${checked}></td>
-          <td><code style="font-size:11px">${AgentDB.esc(id)}</code></td>
+        <tr class="mem-row" data-id="${swadb.esc(m.id)}" data-tier="${tier}">
+          <td><input type="checkbox" class="mem-row-cb" data-id="${swadb.esc(m.id)}" ${checked}></td>
+          <td><code style="font-size:11px">${swadb.esc(id)}</code></td>
           <td>${content}</td>
           ${isSTM ? '' : `<td>${m.confidence != null ? m.confidence : ''}</td>`}
-          <td>${tierBadge(tier)} <span style="font-size:11px;color:var(--text2)">${AgentDB.esc(cat)}</span></td>
+          <td>${tierBadge(tier)} <span style="font-size:11px;color:var(--text2)">${swadb.esc(cat)}</span></td>
           <td style="font-size:12px;color:var(--text2)">${created}</td>
-          <td><button class="btn mem-delete-btn" data-id="${AgentDB.esc(m.id)}" data-tier="${tier}" style="padding:2px 8px;font-size:11px;background:var(--red,#e74c3c);color:#fff">Del</button></td>
+          <td><button class="btn mem-delete-btn" data-id="${swadb.esc(m.id)}" data-tier="${tier}" style="padding:2px 8px;font-size:11px;background:var(--red,#e74c3c);color:#fff">Del</button></td>
         </tr>
-        <tr class="mem-expand" data-expand-for="${AgentDB.esc(m.id)}" style="display:none">
+        <tr class="mem-expand" data-expand-for="${swadb.esc(m.id)}" style="display:none">
           <td colspan="${cols}" style="padding:12px;background:var(--bg2,#1a1a2e);font-size:12px;line-height:1.6">
-            <b>Full ID:</b> <code>${AgentDB.esc(m.id || '')}</code><br>
-            <b>Agent:</b> ${AgentDB.esc(m.agent_id || 'N/A')}<br>
-            <b>Source:</b> ${AgentDB.esc(m.source || 'N/A')}<br>
+            <b>Full ID:</b> <code>${swadb.esc(m.id || '')}</code><br>
+            <b>Agent:</b> ${swadb.esc(m.agent_id || 'N/A')}<br>
+            <b>Source:</b> ${swadb.esc(m.source || 'N/A')}<br>
             ${m.confidence != null ? `<b>Confidence:</b> ${m.confidence}<br>` : ''}
             <b>Content:</b><br>
-            <div style="white-space:pre-wrap;margin-top:4px;padding:8px;background:var(--bg,#0f0f23);border-radius:4px">${AgentDB.esc(m.content || '')}</div>
+            <div style="white-space:pre-wrap;margin-top:4px;padding:8px;background:var(--bg,#0f0f23);border-radius:4px">${swadb.esc(m.content || '')}</div>
           </td>
         </tr>`;
     }).join('');
@@ -277,15 +277,15 @@
   async function batchPin() {
     const ids = selectedIds();
     if (!ids.length) return;
-    const r = await AgentDB.api('POST', '/api/memories/batch/pin', {
+    const r = await swadb.api('POST', '/api/memories/batch/pin', {
       ids: ids, memory_table: selectedTable()
     });
     if (r.status === 'ok') {
-      AgentDB.toast('Pinned ' + (r.data && r.data.pinned ? r.data.pinned : ids.length) + ' memories', 'success');
+      swadb.toast('Pinned ' + (r.data && r.data.pinned ? r.data.pinned : ids.length) + ' memories', 'success');
       V._selected.clear();
       renderBatchBar();
     } else {
-      AgentDB.toast('Pin failed: ' + (r.error || 'unknown'), 'error');
+      swadb.toast('Pin failed: ' + (r.error || 'unknown'), 'error');
     }
   }
 
@@ -295,15 +295,15 @@
     const tagName = prompt('Tag name to apply to ' + ids.length + ' memor' +
                             (ids.length === 1 ? 'y' : 'ies') + ':');
     if (!tagName || !tagName.trim()) return;
-    const r = await AgentDB.api('POST', '/api/memories/batch/tag', {
+    const r = await swadb.api('POST', '/api/memories/batch/tag', {
       ids: ids, target_table: selectedTable(), tag_name: tagName.trim()
     });
     if (r.status === 'ok') {
-      AgentDB.toast('Tagged ' + ids.length + ' memories with ' + tagName.trim(), 'success');
+      swadb.toast('Tagged ' + ids.length + ' memories with ' + tagName.trim(), 'success');
       V._selected.clear();
       await loadMemories();
     } else {
-      AgentDB.toast('Tag failed: ' + (r.error || 'unknown'), 'error');
+      swadb.toast('Tag failed: ' + (r.error || 'unknown'), 'error');
     }
   }
 
@@ -311,22 +311,22 @@
     const ids = selectedIds();
     if (!ids.length) return;
     if (currentTier === 'long') {
-      AgentDB.toast('Long-term memories cannot be promoted further', 'error');
+      swadb.toast('Long-term memories cannot be promoted further', 'error');
       return;
     }
     const target = currentTier === 'short' ? 'midterm' : 'long-term';
     if (!confirm('Promote ' + ids.length + ' memor' + (ids.length === 1 ? 'y' : 'ies') +
                  ' to ' + target + '? They will be moved out of the current tier.')) return;
-    const r = await AgentDB.api('POST', '/api/memories/batch/promote', {
+    const r = await swadb.api('POST', '/api/memories/batch/promote', {
       ids: ids, source_table: selectedTable()
     });
     if (r.status === 'ok') {
       const promoted = (r.data && r.data.promoted) || ids.length;
-      AgentDB.toast('Promoted ' + promoted + ' memories to ' + target, 'success');
+      swadb.toast('Promoted ' + promoted + ' memories to ' + target, 'success');
       V._selected.clear();
       await loadMemories();
     } else {
-      AgentDB.toast('Promote failed: ' + (r.error || 'unknown'), 'error');
+      swadb.toast('Promote failed: ' + (r.error || 'unknown'), 'error');
     }
   }
 
@@ -343,7 +343,7 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function() { URL.revokeObjectURL(url); }, 0);
-    AgentDB.toast('Exported ' + memories.length + ' memories', 'success');
+    swadb.toast('Exported ' + memories.length + ' memories', 'success');
   }
 
   async function batchDelete() {
@@ -351,16 +351,16 @@
     if (!ids.length) return;
     if (!confirm('Delete ' + ids.length + ' memor' + (ids.length === 1 ? 'y' : 'ies') +
                  '? This cannot be undone.')) return;
-    const r = await AgentDB.api('POST', '/api/memories/batch/delete', {
+    const r = await swadb.api('POST', '/api/memories/batch/delete', {
       ids: ids, memory_table: selectedTable()
     });
     if (r.status === 'ok') {
       const deleted = (r.data && r.data.deleted) || ids.length;
-      AgentDB.toast('Deleted ' + deleted + ' memories', 'success');
+      swadb.toast('Deleted ' + deleted + ' memories', 'success');
       V._selected.clear();
       await loadMemories();
     } else {
-      AgentDB.toast('Delete failed: ' + (r.error || 'unknown'), 'error');
+      swadb.toast('Delete failed: ' + (r.error || 'unknown'), 'error');
     }
   }
 
@@ -373,7 +373,7 @@
 
   async function createMemory() {
     const content = document.getElementById('mem-content').value.trim();
-    if (!content) { AgentDB.toast('Content is required'); return; }
+    if (!content) { swadb.toast('Content is required'); return; }
 
     const body = {
       content: content,
@@ -382,26 +382,26 @@
       confidence: parseFloat(document.getElementById('mem-confidence').value) || 0.8
     };
 
-    const r = await AgentDB.api('POST', `/api/memories/${currentTier}`, body);
+    const r = await swadb.api('POST', `/api/memories/${currentTier}`, body);
     if (r.status === 'ok') {
-      AgentDB.toast('Memory created');
+      swadb.toast('Memory created');
       document.getElementById('mem-content').value = '';
       document.getElementById('mem-create-form').style.display = 'none';
       await loadMemories();
     } else {
-      AgentDB.toast('Failed to create memory: ' + (r.message || 'Unknown error'));
+      swadb.toast('Failed to create memory: ' + (r.message || 'Unknown error'));
     }
   }
 
   async function deleteMemory(tier, id) {
     if (!confirm('Delete this memory? This cannot be undone.')) return;
-    const r = await AgentDB.api('DELETE', `/api/memories/${tier}/${id}`);
+    const r = await swadb.api('DELETE', `/api/memories/${tier}/${id}`);
     if (r.status === 'ok') {
-      AgentDB.toast('Memory deleted');
+      swadb.toast('Memory deleted');
       V._selected.delete(id);
       await loadMemories();
     } else {
-      AgentDB.toast('Failed to delete memory');
+      swadb.toast('Failed to delete memory');
     }
   }
 })();

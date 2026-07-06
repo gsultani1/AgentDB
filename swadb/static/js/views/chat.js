@@ -1,5 +1,5 @@
 /* ============================================================
-   AgentDB — Chat Console View
+   swadb — Chat Console View
    Primary interaction surface: chat with the agent, view
    retrieved context and observability data in real time.
    ============================================================ */
@@ -8,12 +8,12 @@
   'use strict';
 
   var V = {};
-  AgentDB.views.chat = V;
+  swadb.views.chat = V;
   var pendingFiles = []; // [{name, type, data_b64, url}]
 
   /* -- Ensure persistent state fields exist -- */
-  if (!AgentDB.state.chatSessionId) AgentDB.state.chatSessionId = null;
-  if (!AgentDB.state.chatHistory)   AgentDB.state.chatHistory = [];
+  if (!swadb.state.chatSessionId) swadb.state.chatSessionId = null;
+  if (!swadb.state.chatHistory)   swadb.state.chatHistory = [];
 
   /* =============================================================
      V.load  —  Render the full chat layout into #view-chat
@@ -41,8 +41,8 @@
       html += '  </select>';
       html += '  <button class="btn btn-primary" id="chat-new-session">New Session</button>';
       html += '  <span class="text-muted text-sm" id="chat-session-label">';
-      html += AgentDB.state.chatSessionId
-        ? 'Session: ' + AgentDB.esc(AgentDB.state.chatSessionId.slice(0, 8))
+      html += swadb.state.chatSessionId
+        ? 'Session: ' + swadb.esc(swadb.state.chatSessionId.slice(0, 8))
         : 'No active session';
       html += '  </span>';
       // Sidebar toggle lives in the header so it stays reachable when the
@@ -92,7 +92,7 @@
       container.innerHTML = html;
 
       /* ---- Populate provider dropdown from API ---- */
-      AgentDB.api('GET', '/api/providers').then(function(r) {
+      swadb.api('GET', '/api/providers').then(function(r) {
         var sel = document.getElementById('chat-provider');
         if (r.status === 'ok' && r.data && r.data.length) {
           r.data.forEach(function(p) {
@@ -111,7 +111,7 @@
       });
 
       /* ---- Populate project dropdown ---- */
-      AgentDB.api('GET', '/api/threads?limit=100').then(function(r) {
+      swadb.api('GET', '/api/threads?limit=100').then(function(r) {
         var sel = document.getElementById('chat-project');
         if (!sel) return;
         var threads = (r.status === 'ok' && r.data) ? r.data : (Array.isArray(r) ? r : []);
@@ -122,8 +122,8 @@
           sel.appendChild(opt);
         });
         /* Pre-select if navigated from projects view */
-        if (AgentDB.state.chatThreadId) {
-          sel.value = AgentDB.state.chatThreadId;
+        if (swadb.state.chatThreadId) {
+          sel.value = swadb.state.chatThreadId;
         }
       });
 
@@ -153,7 +153,7 @@
         ctxRoot.addEventListener('click', function (ev) {
           var card = ev.target.closest('[data-entity-id]');
           if (card && card.dataset.entityId) {
-            AgentDB.openEntityDetail(card.dataset.entityId);
+            swadb.openEntityDetail(card.dataset.entityId);
           }
         });
       }
@@ -192,14 +192,14 @@
   };
 
   /* =============================================================
-     V._restoreHistory  —  Re-render messages from AgentDB.state
+     V._restoreHistory  —  Re-render messages from swadb.state
      ============================================================= */
   V._restoreHistory = function _restoreHistory() {
     var messagesEl = document.getElementById('chat-messages');
     if (!messagesEl) return;
     messagesEl.innerHTML = '';
 
-    var history = AgentDB.state.chatHistory;
+    var history = swadb.state.chatHistory;
     for (var i = 0; i < history.length; i++) {
       V.appendMsg(history[i].role, history[i].content);
     }
@@ -214,7 +214,7 @@
     var projectSel = document.getElementById('chat-project');
     var threadId = projectSel ? projectSel.value : '';
 
-    return AgentDB.api('POST', '/api/agent/session/start', {
+    return swadb.api('POST', '/api/agent/session/start', {
       provider: providerVal,
       thread_id: threadId || undefined,
       provider_id: providerVal || undefined,
@@ -222,8 +222,8 @@
       .then(function (res) {
         var data = res.data || res;
         if (data && data.session_id) {
-          AgentDB.state.chatSessionId = data.session_id;
-          AgentDB.state.chatHistory = [];
+          swadb.state.chatSessionId = data.session_id;
+          swadb.state.chatHistory = [];
 
           /* Clear UI */
           var messagesEl = document.getElementById('chat-messages');
@@ -241,9 +241,9 @@
           var projectName = projectSel && projectSel.value ? projectSel.options[projectSel.selectedIndex].textContent : '';
           if (label) label.textContent = 'Session: ' + data.session_id.slice(0, 8) + (projectName ? ' | ' + projectName : '');
 
-          AgentDB.toast('New session started', 'success');
+          swadb.toast('New session started', 'success');
         } else {
-          AgentDB.toast(res.error || 'Failed to start session', 'error');
+          swadb.toast(res.error || 'Failed to start session', 'error');
         }
         return res;
       });
@@ -262,8 +262,8 @@
         ? '<img src="data:' + f.type + ';base64,' + f.data_b64 + '" style="width:32px;height:32px;object-fit:cover;border-radius:4px">'
         : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
       return '<div class="chat-preview-chip">' + preview +
-        '<span>' + AgentDB.esc(f.name) + '</span>' +
-        '<button onclick="AgentDB.views.chat.removeFile(' + i + ')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1">&times;</button></div>';
+        '<span>' + swadb.esc(f.name) + '</span>' +
+        '<button onclick="swadb.views.chat.removeFile(' + i + ')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1">&times;</button></div>';
     }).join('');
   }
 
@@ -294,7 +294,7 @@
 
     /* Auto-start session if none exists */
     var sessionReady;
-    if (!AgentDB.state.chatSessionId) {
+    if (!swadb.state.chatSessionId) {
       sessionReady = V.startSession();
     } else {
       sessionReady = Promise.resolve();
@@ -303,7 +303,7 @@
     sessionReady.then(function () {
       /* Upload files and build content parts */
       var uploadPromises = filesToSend.map(function(f) {
-        return AgentDB.api('POST', '/api/uploads', {
+        return swadb.api('POST', '/api/uploads', {
           filename: f.name, data: f.data_b64, content_type: f.type
         }).then(function() { return f; });
       });
@@ -347,7 +347,7 @@
 
       /* Append user message to UI and state */
       V.appendMsg('user', displayContent);
-      AgentDB.state.chatHistory.push({ role: 'user', content: historyContent });
+      swadb.state.chatHistory.push({ role: 'user', content: historyContent });
 
       /* Show typing indicator */
       var typingEl = V.showTyping();
@@ -355,8 +355,8 @@
       /* Build request */
       var payload = {
         message: message,
-        session_id: AgentDB.state.chatSessionId,
-        history: AgentDB.state.chatHistory,
+        session_id: swadb.state.chatSessionId,
+        history: swadb.state.chatHistory,
       };
 
       /* If multi-part content, set it on payload */
@@ -369,7 +369,7 @@
 
       /* Capture for Raw Mode — independent of render branch */
       V.lastRawRequest = payload;
-      AgentDB.api('POST', '/api/agent/chat', payload)
+      swadb.api('POST', '/api/agent/chat', payload)
         .then(function (res) {
           /* Remove typing indicator */
           V.removeTyping(typingEl);
@@ -381,7 +381,7 @@
           if (res.status === 'ok' && d.response) {
             /* Append assistant message */
             V.appendMsg('assistant', d.response);
-            AgentDB.state.chatHistory.push({ role: 'assistant', content: d.response });
+            swadb.state.chatHistory.push({ role: 'assistant', content: d.response });
 
             /* Update sidebar with context (or raw view) */
             V.renderContext(d);
@@ -418,30 +418,30 @@
             var sizeStr = part.size > 1024 ? Math.round(part.size / 1024) + ' KB' : part.size + ' B';
             return '<div class="chat-file-chip">' +
               '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
-              '<span>' + AgentDB.esc(part.name) + '</span>' +
+              '<span>' + swadb.esc(part.name) + '</span>' +
               '<span style="opacity:.7;font-size:.75rem">' + sizeStr + '</span></div>';
           }
-          if (part.type === 'text') return '<p>' + AgentDB.esc(part.text) + '</p>';
+          if (part.type === 'text') return '<p>' + swadb.esc(part.text) + '</p>';
           return '';
         }).join('');
         wrapper.innerHTML = '<div class="chat-msg-role" style="font-size:.75rem;opacity:.8;margin-bottom:2px">You</div>' + htmlParts;
       } else {
         wrapper.innerHTML =
           '<div class="chat-msg-role" style="font-size:.75rem;opacity:.8;margin-bottom:2px">You</div>' +
-          '<div>' + AgentDB.esc(content) + '</div>';
+          '<div>' + swadb.esc(content) + '</div>';
       }
     } else if (role === 'assistant') {
       wrapper.className = 'chat-msg chat-msg-assistant md-content';
       wrapper.innerHTML =
         '<div class="chat-msg-role" style="font-size:.75rem;color:var(--text2);margin-bottom:2px">Assistant</div>' +
-        '<div>' + AgentDB.renderMarkdown(content) + '</div>';
+        '<div>' + swadb.renderMarkdown(content) + '</div>';
     } else {
       /* error */
       wrapper.className = 'chat-msg chat-msg-assistant';
       wrapper.style.borderLeft = '3px solid var(--red)';
       wrapper.innerHTML =
         '<div class="chat-msg-role" style="font-size:.75rem;color:var(--red);margin-bottom:2px">Error</div>' +
-        '<div style="color:var(--red)">' + AgentDB.esc(content) + '</div>';
+        '<div style="color:var(--red)">' + swadb.esc(content) + '</div>';
     }
 
     messagesEl.appendChild(wrapper);
@@ -511,7 +511,7 @@
     if (strats && strats.length) {
       html += '<div class="obs-strategies">';
       for (var i = 0; i < strats.length; i++) {
-        html += '<span class="obs-strategy-badge">' + AgentDB.esc(strats[i]) + '</span>';
+        html += '<span class="obs-strategy-badge">' + swadb.esc(strats[i]) + '</span>';
       }
       html += '</div>';
     }
@@ -529,7 +529,7 @@
 
       html += '<div class="obs-section">';
       html += '<div class="obs-section-title">' +
-              AgentDB.esc(tiers[t].label) +
+              swadb.esc(tiers[t].label) +
               ' <span class="obs-count">' + memories.length + '</span></div>';
 
       for (var m = 0; m < memories.length; m++) {
@@ -537,32 +537,32 @@
         var combined = (typeof mem.combined_score === 'number') ? mem.combined_score.toFixed(3) : '';
         var semantic = (typeof mem.similarity_score === 'number') ? mem.similarity_score.toFixed(3) : '';
         var displayScore = combined || semantic || '—';
-        var snippet = AgentDB.truncate(mem.content || mem.text || '', 120);
+        var snippet = swadb.truncate(mem.content || mem.text || '', 120);
 
         html += '<div class="obs-mem-card" data-tier="' + tiers[t].key + '">';
 
         /* Header: score, type badge, metadata */
         html += '<div class="obs-mem-header">';
-        html += '<span class="obs-mem-score">' + AgentDB.esc(displayScore) + '</span>';
+        html += '<span class="obs-mem-score">' + swadb.esc(displayScore) + '</span>';
         if (mem.type) {
-          html += '<span class="obs-mem-type">' + AgentDB.esc(mem.type) + '</span>';
+          html += '<span class="obs-mem-type">' + swadb.esc(mem.type) + '</span>';
         }
         html += '<span class="obs-mem-meta">';
         if (typeof mem.confidence === 'number') {
           html += '<span title="Confidence">' + (mem.confidence * 100).toFixed(0) + '%</span>';
         }
         if (mem.source) {
-          html += '<span title="Source">' + AgentDB.esc(AgentDB.truncate(mem.source, 20)) + '</span>';
+          html += '<span title="Source">' + swadb.esc(swadb.truncate(mem.source, 20)) + '</span>';
         }
         if (mem.created_at || mem.timestamp) {
           var ts = mem.created_at || mem.timestamp;
-          html += '<span title="' + AgentDB.esc(ts) + '">' + AgentDB.esc(_relativeTime(ts)) + '</span>';
+          html += '<span title="' + swadb.esc(ts) + '">' + swadb.esc(_relativeTime(ts)) + '</span>';
         }
         html += '</span>';
         html += '</div>';
 
         /* Content */
-        html += '<div class="obs-mem-content">' + AgentDB.esc(snippet) + '</div>';
+        html += '<div class="obs-mem-content">' + swadb.esc(snippet) + '</div>';
 
         /* Strategy score breakdown bars */
         var rs = mem.retrieval_strategies;
@@ -595,14 +595,14 @@
         // Cards are clickable: open the entity detail drawer (handled by
         // delegated listener below).
         html += '<div class="obs-entity-card" data-entity-id="' +
-                AgentDB.esc(ent.id || '') +
+                swadb.esc(ent.id || '') +
                 '" style="cursor:pointer" title="Click to open detail">';
         if (ent.entity_type) {
-          html += '<span class="obs-entity-type">' + AgentDB.esc(ent.entity_type) + '</span>';
+          html += '<span class="obs-entity-type">' + swadb.esc(ent.entity_type) + '</span>';
         }
-        html += '<span class="font-bold">' + AgentDB.esc(ent.name || ent.id || '') + '</span>';
+        html += '<span class="font-bold">' + swadb.esc(ent.name || ent.id || '') + '</span>';
         if (ent.description) {
-          html += ' <span class="text-muted">— ' + AgentDB.esc(AgentDB.truncate(ent.description, 60)) + '</span>';
+          html += ' <span class="text-muted">— ' + swadb.esc(swadb.truncate(ent.description, 60)) + '</span>';
         }
         html += '</div>';
       }
@@ -617,7 +617,7 @@
       for (var id = 0; id < identity.length; id++) {
         var idm = identity[id];
         html += '<div style="background:var(--bg);padding:6px 10px;border-radius:var(--radius);margin-bottom:4px;font-size:.82rem">';
-        html += AgentDB.esc(AgentDB.truncate(idm.content || idm.text || '', 100));
+        html += swadb.esc(swadb.truncate(idm.content || idm.text || '', 100));
         html += '</div>';
       }
       html += '</div>';
@@ -630,7 +630,7 @@
       html += '<div class="obs-section-title">Matched Goals <span class="obs-count">' + goals.length + '</span></div>';
       for (var g = 0; g < goals.length; g++) {
         html += '<div style="background:var(--bg);padding:6px 10px;border-radius:var(--radius);margin-bottom:4px;font-size:.82rem">';
-        html += '<span>' + AgentDB.esc(goals[g].description || goals[g].name || goals[g]) + '</span>';
+        html += '<span>' + swadb.esc(goals[g].description || goals[g].name || goals[g]) + '</span>';
         html += '</div>';
       }
       html += '</div>';
@@ -644,9 +644,9 @@
       for (var s = 0; s < skills.length; s++) {
         var sk = skills[s];
         html += '<div style="background:var(--bg);padding:6px 10px;border-radius:var(--radius);margin-bottom:4px;font-size:.82rem">';
-        html += '<span class="font-bold">' + AgentDB.esc(sk.name || '') + '</span>';
+        html += '<span class="font-bold">' + swadb.esc(sk.name || '') + '</span>';
         if (sk.description) {
-          html += ' <span class="text-muted"> — ' + AgentDB.esc(AgentDB.truncate(sk.description, 60)) + '</span>';
+          html += ' <span class="text-muted"> — ' + swadb.esc(swadb.truncate(sk.description, 60)) + '</span>';
         }
         html += '</div>';
       }
@@ -658,20 +658,20 @@
     html += '<div style="font-size:.82rem;color:var(--text2);display:flex;flex-direction:column;gap:4px">';
 
     if (data.provider) {
-      html += '<div><span class="font-bold">Provider:</span> ' + AgentDB.esc(data.provider) + '</div>';
+      html += '<div><span class="font-bold">Provider:</span> ' + swadb.esc(data.provider) + '</div>';
     }
     if (data.model) {
-      html += '<div><span class="font-bold">Model:</span> ' + AgentDB.esc(data.model) + '</div>';
+      html += '<div><span class="font-bold">Model:</span> ' + swadb.esc(data.model) + '</div>';
     }
     if (typeof data.llm_latency_seconds === 'number') {
       html += '<div><span class="font-bold">Latency:</span> ' + data.llm_latency_seconds.toFixed(2) + 's</div>';
     }
     if (data.snapshot_id) {
       html += '<div><span class="font-bold">Snapshot:</span> <span class="text-mono">' +
-              AgentDB.esc(String(data.snapshot_id).slice(0, 8)) + '</span></div>';
+              swadb.esc(String(data.snapshot_id).slice(0, 8)) + '</span></div>';
     }
     if (data.llm_error) {
-      html += '<div style="color:#ef4444"><span class="font-bold">Error:</span> ' + AgentDB.esc(data.llm_error) + '</div>';
+      html += '<div style="color:#ef4444"><span class="font-bold">Error:</span> ' + swadb.esc(data.llm_error) + '</div>';
     }
 
     html += '</div>';
@@ -683,7 +683,7 @@
       html += '<span class="obs-chevron">&#9654;</span> Context Payload Sent to Model';
       html += '</button>';
       html += '<div class="obs-collapsible-body" id="obs-ctx-payload">';
-      html += '<div class="obs-context-payload">' + AgentDB.esc(data.formatted_context) + '</div>';
+      html += '<div class="obs-context-payload">' + swadb.esc(data.formatted_context) + '</div>';
       html += '</div>';
       html += '</div>';
     }
@@ -750,7 +750,7 @@
 
   V.loadProviderContextWindow = async function () {
     try {
-      var r = await AgentDB.api('GET', '/api/providers');
+      var r = await swadb.api('GET', '/api/providers');
       if (r.status !== 'ok' || !r.data) return;
       var providers = r.data;
       // Prefer the chat dropdown's selection if present; else default
@@ -781,7 +781,7 @@
     var input = document.getElementById('chat-input');
     var typing = input ? input.value : '';
     // Sum: history (already-exchanged turns), retrieved context (last), typing
-    var historyChars = JSON.stringify(AgentDB.state.chatHistory || []).length;
+    var historyChars = JSON.stringify(swadb.state.chatHistory || []).length;
     var contextChars = (V.lastContextPayloadJson || '').length;
     var typingChars = typing.length;
     var total = V.estimateTokens(typingChars + historyChars + contextChars);
@@ -840,11 +840,11 @@
     var html = '';
     html += '<div class="obs-section"><div class="obs-section-title">Request → /api/agent/chat</div>';
     html += '<pre style="background:var(--bg2);padding:10px;border-radius:6px;font-size:11px;font-family:var(--mono);overflow-x:auto;white-space:pre-wrap;word-break:break-word">' +
-            AgentDB.esc(JSON.stringify(V.lastRawRequest || {}, null, 2)) +
+            swadb.esc(JSON.stringify(V.lastRawRequest || {}, null, 2)) +
             '</pre></div>';
     html += '<div class="obs-section" style="margin-top:12px"><div class="obs-section-title">Response</div>';
     html += '<pre style="background:var(--bg2);padding:10px;border-radius:6px;font-size:11px;font-family:var(--mono);overflow-x:auto;white-space:pre-wrap;word-break:break-word">' +
-            AgentDB.esc(JSON.stringify(V.lastRawResponse || {}, null, 2)) +
+            swadb.esc(JSON.stringify(V.lastRawResponse || {}, null, 2)) +
             '</pre></div>';
     ctx.innerHTML = html;
   };

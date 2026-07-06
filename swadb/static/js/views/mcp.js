@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.mcp = {};
+  const V = swadb.views.mcp = {};
   const el = () => document.getElementById('view-mcp');
 
   const MCP_TOOLS = [
@@ -10,7 +10,7 @@
     { name: 'create_entity', desc: 'Create a knowledge graph entity with type and aliases' },
     { name: 'list_entities', desc: 'List entities in the knowledge graph, optionally filtered by type' },
     { name: 'check_goals', desc: 'Check which active goals are relevant to the given context' },
-    { name: 'get_health', desc: 'Check AgentDB health status and database info' },
+    { name: 'get_health', desc: 'Check swadb health status and database info' },
     { name: 'run_consolidation', desc: 'Trigger a memory consolidation cycle' },
   ];
 
@@ -44,7 +44,7 @@ swadb mcp --transport sse --port 8421
 
   V.load = async function() {
     // Fetch MCP status
-    var status = await AgentDB.api('GET', '/api/mcp/status').catch(function() { return {}; });
+    var status = await swadb.api('GET', '/api/mcp/status').catch(function() { return {}; });
     var mcpEnabled = status && status.data && status.data.enabled;
     var transport = (status && status.data && status.data.transport) || 'stdio';
     var port = (status && status.data && status.data.port) || 8421;
@@ -55,8 +55,8 @@ swadb mcp --transport sse --port 8421
 
     var toolCards = MCP_TOOLS.map(function(t) {
       return '<div style="background:var(--bg3);padding:12px;border-radius:8px">' +
-        '<div style="font-weight:600;font-family:var(--mono);font-size:13px;margin-bottom:4px">' + AgentDB.esc(t.name) + '</div>' +
-        '<div style="font-size:12px;color:var(--text2)">' + AgentDB.esc(t.desc) + '</div></div>';
+        '<div style="font-weight:600;font-family:var(--mono);font-size:13px;margin-bottom:4px">' + swadb.esc(t.name) + '</div>' +
+        '<div style="font-size:12px;color:var(--text2)">' + swadb.esc(t.desc) + '</div></div>';
     }).join('');
 
     var toolOptions = MCP_TOOLS.map(function(t) {
@@ -71,7 +71,7 @@ swadb mcp --transport sse --port 8421
           <h3>Status</h3>${statusBadge}
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text2)">
-          Transport: <strong>${AgentDB.esc(transport)}</strong> &nbsp;&bull;&nbsp; Port: <strong>${port}</strong>
+          Transport: <strong>${swadb.esc(transport)}</strong> &nbsp;&bull;&nbsp; Port: <strong>${port}</strong>
         </div>
       </div>
 
@@ -85,18 +85,18 @@ swadb mcp --transport sse --port 8421
       <div class="card" style="margin-top:16px">
         <h3>Connection Instructions</h3>
         <div style="display:flex;gap:8px;margin-top:12px;margin-bottom:12px">
-          <button class="btn mcp-conn-tab active" data-client="claude" onclick="AgentDB.views.mcp.switchConn('claude')">Claude Desktop</button>
-          <button class="btn mcp-conn-tab" data-client="cursor" onclick="AgentDB.views.mcp.switchConn('cursor')">Cursor</button>
-          <button class="btn mcp-conn-tab" data-client="generic" onclick="AgentDB.views.mcp.switchConn('generic')">Generic / CLI</button>
+          <button class="btn mcp-conn-tab active" data-client="claude" onclick="swadb.views.mcp.switchConn('claude')">Claude Desktop</button>
+          <button class="btn mcp-conn-tab" data-client="cursor" onclick="swadb.views.mcp.switchConn('cursor')">Cursor</button>
+          <button class="btn mcp-conn-tab" data-client="generic" onclick="swadb.views.mcp.switchConn('generic')">Generic / CLI</button>
         </div>
-        <pre id="mcp-conn-code" style="background:var(--bg1);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.5"><code>${AgentDB.esc(CONNECTION_EXAMPLES.claude)}</code></pre>
+        <pre id="mcp-conn-code" style="background:var(--bg1);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.5"><code>${swadb.esc(CONNECTION_EXAMPLES.claude)}</code></pre>
       </div>
 
       <div class="card" style="margin-top:16px">
         <h3>Test Tool Execution</h3>
         <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
           <select id="mcp-test-tool" style="width:200px">${toolOptions}</select>
-          <button class="btn btn-primary" onclick="AgentDB.views.mcp.execTool()">Execute</button>
+          <button class="btn btn-primary" onclick="swadb.views.mcp.execTool()">Execute</button>
         </div>
         <textarea id="mcp-test-params" placeholder='{"query": "test"}' style="width:100%;height:80px;margin-top:12px;font-family:var(--mono);font-size:13px"></textarea>
         <pre id="mcp-test-result" style="background:var(--bg1);padding:12px;border-radius:8px;margin-top:12px;font-size:13px;max-height:300px;overflow:auto;display:none"></pre>
@@ -108,11 +108,11 @@ swadb mcp --transport sse --port 8421
           <div>
             <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">MCP Enabled</label>
             <label class="setting-toggle"><input type="checkbox" id="mcp-cfg-enabled" ${mcpEnabled ? 'checked' : ''}
-              onchange="AgentDB.views.mcp.saveCfg('mcp_enabled',this.checked?'true':'false')"><span class="slider"></span></label>
+              onchange="swadb.views.mcp.saveCfg('mcp_enabled',this.checked?'true':'false')"><span class="slider"></span></label>
           </div>
           <div>
             <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Transport</label>
-            <select id="mcp-cfg-transport" onchange="AgentDB.views.mcp.saveCfg('mcp_transport',this.value)" style="width:100%">
+            <select id="mcp-cfg-transport" onchange="swadb.views.mcp.saveCfg('mcp_transport',this.value)" style="width:100%">
               <option value="stdio" ${transport==='stdio'?'selected':''}>stdio</option>
               <option value="sse" ${transport==='sse'?'selected':''}>sse</option>
             </select>
@@ -120,7 +120,7 @@ swadb mcp --transport sse --port 8421
           <div>
             <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Port</label>
             <input type="number" id="mcp-cfg-port" value="${port}" style="width:100%"
-              onchange="AgentDB.views.mcp.saveCfg('mcp_port',this.value)">
+              onchange="swadb.views.mcp.saveCfg('mcp_port',this.value)">
           </div>
         </div>
       </div>`;
@@ -130,7 +130,7 @@ swadb mcp --transport sse --port 8421
     document.querySelectorAll('.mcp-conn-tab').forEach(function(b) {
       b.classList.toggle('active', b.getAttribute('data-client') === client);
     });
-    document.getElementById('mcp-conn-code').innerHTML = '<code>' + AgentDB.esc(CONNECTION_EXAMPLES[client]) + '</code>';
+    document.getElementById('mcp-conn-code').innerHTML = '<code>' + swadb.esc(CONNECTION_EXAMPLES[client]) + '</code>';
   };
 
   V.execTool = async function() {
@@ -139,7 +139,7 @@ swadb mcp --transport sse --port 8421
     var params = {};
     if (paramsText) {
       try { params = JSON.parse(paramsText); }
-      catch(e) { return AgentDB.toast('Invalid JSON parameters', 'error'); }
+      catch(e) { return swadb.toast('Invalid JSON parameters', 'error'); }
     }
 
     // Map MCP tools to REST API calls
@@ -156,7 +156,7 @@ swadb mcp --transport sse --port 8421
     };
 
     var api = apiMap[tool];
-    if (!api) return AgentDB.toast('Unknown tool', 'error');
+    if (!api) return swadb.toast('Unknown tool', 'error');
 
     var resultEl = document.getElementById('mcp-test-result');
     resultEl.style.display = 'block';
@@ -165,19 +165,19 @@ swadb mcp --transport sse --port 8421
     var r;
     if (api.method === 'GET') {
       var qs = Object.keys(params).map(function(k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
-      r = await AgentDB.api('GET', api.path + (qs ? '?' + qs : ''));
+      r = await swadb.api('GET', api.path + (qs ? '?' + qs : ''));
     } else {
-      r = await AgentDB.api('POST', api.path, params);
+      r = await swadb.api('POST', api.path, params);
     }
     resultEl.textContent = JSON.stringify(r, null, 2);
   };
 
   V.saveCfg = async function(key, value) {
-    var r = await AgentDB.api('PUT', '/api/config/' + key, { value: value });
+    var r = await swadb.api('PUT', '/api/config/' + key, { value: value });
     if (r.status === 'ok') {
-      AgentDB.toast('Saved ' + key, 'success');
+      swadb.toast('Saved ' + key, 'success');
     } else {
-      AgentDB.toast('Failed to save ' + key, 'error');
+      swadb.toast('Failed to save ' + key, 'error');
     }
   };
 })();

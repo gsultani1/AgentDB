@@ -35,8 +35,8 @@ provides:
 - **A Python API** (`from swadb import crud, ...`) for embedding swadb
   inside other Python applications.
 
-The product is branded **AgentDB**; the PyPI package is named **`swadb`**.
-Same software.
+The product and the PyPI package share one name: **swadb** (formerly
+branded AgentDB — the GitHub repository URL still reflects the old name).
 
 ## Conventions
 

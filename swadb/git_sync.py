@@ -1,7 +1,7 @@
 """
-Git knowledge sync for AgentDB v1.5.
+Git knowledge sync for swadb v1.5.
 
-Synchronizes a git repository of markdown files with the AgentDB database.
+Synchronizes a git repository of markdown files with the swadb database.
 The repository serves as the authoring source of truth; the database is
 the runtime source of truth.
 

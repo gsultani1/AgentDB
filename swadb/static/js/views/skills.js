@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.skills = {};
+  const V = swadb.views.skills = {};
   const el = () => document.getElementById('view-skills');
 
   V.load = function() {
@@ -44,7 +44,7 @@
   };
 
   V.loadTable = async function() {
-    const r = await AgentDB.api('GET', '/api/skills');
+    const r = await swadb.api('GET', '/api/skills');
     const items = r.data?.skills || r.data || [];
     if (!items.length) {
       document.getElementById('skills-table').innerHTML = '<p style="color:var(--text2)">No skills found.</p>';
@@ -56,15 +56,15 @@
     items.forEach(s => {
       const uses = s.usage_count || s.uses || 0;
       const success = s.success_rate != null ? (s.success_rate * 100).toFixed(0) + '%' : '-';
-      const lastUsed = s.last_used ? AgentDB.formatDate(s.last_used) : '-';
+      const lastUsed = s.last_used ? swadb.formatDate(s.last_used) : '-';
       html += `<tr>
-        <td><strong>${AgentDB.esc(s.name)}</strong><br><small style="color:var(--text2)">${AgentDB.esc(AgentDB.truncate(s.description || '', 60))}</small></td>
-        <td>${AgentDB.esc(s.execution_type || '-')}</td>
-        <td>${AgentDB.esc(String(s.version || 1))}</td>
+        <td><strong>${swadb.esc(s.name)}</strong><br><small style="color:var(--text2)">${swadb.esc(swadb.truncate(s.description || '', 60))}</small></td>
+        <td>${swadb.esc(s.execution_type || '-')}</td>
+        <td>${swadb.esc(String(s.version || 1))}</td>
         <td>${uses}</td>
         <td>${success}</td>
         <td>${lastUsed}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="AgentDB.views.skills.delete('${AgentDB.esc(s.id || s.skill_id)}')">Delete</button></td>
+        <td><button class="btn btn-danger btn-sm" onclick="swadb.views.skills.delete('${swadb.esc(s.id || s.skill_id)}')">Delete</button></td>
       </tr>`;
     });
     html += '</tbody></table>';
@@ -75,10 +75,10 @@
     const name = document.getElementById('skill-name').value.trim();
     const description = document.getElementById('skill-desc').value.trim();
     const execution_type = document.getElementById('skill-exec-type').value;
-    if (!name) { AgentDB.toast('Name is required', 'error'); return; }
-    const r = await AgentDB.api('POST', '/api/skills', { name, description, execution_type });
-    if (r.error) { AgentDB.toast('Error: ' + r.error, 'error'); return; }
-    AgentDB.toast('Skill created', 'success');
+    if (!name) { swadb.toast('Name is required', 'error'); return; }
+    const r = await swadb.api('POST', '/api/skills', { name, description, execution_type });
+    if (r.error) { swadb.toast('Error: ' + r.error, 'error'); return; }
+    swadb.toast('Skill created', 'success');
     document.getElementById('skills-form').style.display = 'none';
     document.getElementById('skill-name').value = '';
     document.getElementById('skill-desc').value = '';
@@ -86,10 +86,10 @@
   };
 
   V.delete = async function(id) {
-    if (!await AgentDB.confirm('Delete this skill?')) return;
-    const r = await AgentDB.api('DELETE', '/api/skills/' + id);
-    if (r.error) { AgentDB.toast('Error: ' + r.error, 'error'); return; }
-    AgentDB.toast('Skill deleted', 'success');
+    if (!await swadb.confirm('Delete this skill?')) return;
+    const r = await swadb.api('DELETE', '/api/skills/' + id);
+    if (r.error) { swadb.toast('Error: ' + r.error, 'error'); return; }
+    swadb.toast('Skill deleted', 'success');
     V.loadTable();
   };
 })();

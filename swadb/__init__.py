@@ -1,6 +1,6 @@
-"""AgentDB - A Sovereign Agent Memory System.
+"""swadb - A Sovereign Agent Memory System.
 
-The PyPI package is named ``swadb``; the product is branded *AgentDB*.
+The PyPI package and the product are both named ``swadb``.
 
 Most users interact with this package via the CLI (``swadb init``,
 ``swadb serve``, ``swadb mcp``). For embedding the memory layer
@@ -26,7 +26,7 @@ from swadb.database import (
     verify_schema,
 )
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 __author__ = "George Sultani"
 __license__ = "Apache-2.0"
 __url__ = "https://github.com/gsultani1/AgentDB"

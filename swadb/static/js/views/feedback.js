@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.feedback = {};
+  const V = swadb.views.feedback = {};
   const el = () => document.getElementById('view-feedback');
 
   V.load = function() {
@@ -24,7 +24,7 @@
   };
 
   V.loadContradictions = async function() {
-    const r = await AgentDB.api('GET', '/api/contradictions?resolution=unresolved');
+    const r = await swadb.api('GET', '/api/contradictions?resolution=unresolved');
     const items = r.data?.contradictions || r.data || [];
     const box = document.getElementById('feedback-content');
     if (!items.length) {
@@ -38,17 +38,17 @@
       html += `<div class="card" style="margin-bottom:12px;padding:16px">
         <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
           <div>
-            <strong>Memory A</strong> <code>${AgentDB.esc(idA)}</code>
+            <strong>Memory A</strong> <code>${swadb.esc(idA)}</code>
             &nbsp;&mdash;&nbsp;
-            <strong>Memory B</strong> <code>${AgentDB.esc(idB)}</code>
+            <strong>Memory B</strong> <code>${swadb.esc(idB)}</code>
           </div>
           <span class="badge" style="background:var(--yellow);color:#000">unresolved</span>
         </div>
-        <p style="margin-bottom:8px;color:var(--text2)">${AgentDB.esc(AgentDB.truncate(c.description || c.explanation || '', 120))}</p>
+        <p style="margin-bottom:8px;color:var(--text2)">${swadb.esc(swadb.truncate(c.description || c.explanation || '', 120))}</p>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-sm btn-primary" onclick="AgentDB.views.feedback.resolve('${AgentDB.esc(c.id || c.contradiction_id)}','keep_a')">Keep A</button>
-          <button class="btn btn-sm btn-primary" onclick="AgentDB.views.feedback.resolve('${AgentDB.esc(c.id || c.contradiction_id)}','keep_b')">Keep B</button>
-          <button class="btn btn-sm" onclick="AgentDB.views.feedback.resolve('${AgentDB.esc(c.id || c.contradiction_id)}','merge')">Merge</button>
+          <button class="btn btn-sm btn-primary" onclick="swadb.views.feedback.resolve('${swadb.esc(c.id || c.contradiction_id)}','keep_a')">Keep A</button>
+          <button class="btn btn-sm btn-primary" onclick="swadb.views.feedback.resolve('${swadb.esc(c.id || c.contradiction_id)}','keep_b')">Keep B</button>
+          <button class="btn btn-sm" onclick="swadb.views.feedback.resolve('${swadb.esc(c.id || c.contradiction_id)}','merge')">Merge</button>
         </div>
       </div>`;
     });
@@ -56,13 +56,13 @@
   };
 
   V.resolve = async function(id, resolution) {
-    const r = await AgentDB.api('POST', '/api/contradictions/' + id + '/resolve', {
+    const r = await swadb.api('POST', '/api/contradictions/' + id + '/resolve', {
       resolution: resolution,
       reasoning: 'User resolved via UI',
       resolved_by: 'user'
     });
-    if (r.error) { AgentDB.toast('Error: ' + r.error, 'error'); return; }
-    AgentDB.toast('Contradiction resolved: ' + resolution, 'success');
+    if (r.error) { swadb.toast('Error: ' + r.error, 'error'); return; }
+    swadb.toast('Contradiction resolved: ' + resolution, 'success');
     V.loadContradictions();
   };
 

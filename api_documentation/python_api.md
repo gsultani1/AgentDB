@@ -256,7 +256,7 @@ if ann.is_available():
 
 ## What's NOT in the Python API
 
-- The HTTP routing layer (`swadb.server.AgentDBHandler`) is internal.
+- The HTTP routing layer (`swadb.server.SwadbHandler`) is internal.
   Use the CLI's `serve` command or the public HTTP endpoints instead.
 - The MCP server is similarly only meant to be invoked via `swadb mcp`.
 - Module-level state (`_RUNTIME_PASSPHRASE`, `_GLOBAL_INDEX_SET`,

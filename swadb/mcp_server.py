@@ -1,11 +1,11 @@
-"""MCP Server for AgentDB. Exposes capabilities as MCP tools."""
+"""MCP Server for swadb. Exposes capabilities as MCP tools."""
 from mcp.server.fastmcp import FastMCP
 from swadb.database import get_connection
 from swadb import crud
 from swadb.context import retrieve_context
 from swadb.embeddings import generate_embedding, embedding_to_blob
 
-mcp = FastMCP("AgentDB")
+mcp = FastMCP("swadb")
 _db_path = None
 
 
@@ -130,7 +130,7 @@ def check_goals(context: str) -> dict:
 
 @mcp.tool()
 def get_health() -> dict:
-    """Check AgentDB health status."""
+    """Check swadb health status."""
     conn = _get_conn()
     try:
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()

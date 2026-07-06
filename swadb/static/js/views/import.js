@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.import = {};
+  const V = swadb.views.import = {};
   const el = () => document.getElementById('view-import');
 
   V.load = function() {
@@ -14,7 +14,7 @@
             <option value="generic">Generic JSONL</option>
           </select>
           <input type="text" id="import-filepath" placeholder="File path on server..." style="flex:1">
-          <button class="btn btn-primary" onclick="AgentDB.views.import.start()">Import</button>
+          <button class="btn btn-primary" onclick="swadb.views.import.start()">Import</button>
         </div>
         <div id="import-progress" style="margin-top:16px;display:none">
           <div class="progress-bar"><div class="progress-fill" id="import-fill" style="width:0%"></div></div>
@@ -27,12 +27,12 @@
   V.start = async function() {
     var fp = document.getElementById('import-filepath').value.trim();
     var prov = document.getElementById('import-provider').value;
-    if (!fp) return AgentDB.toast('File path is required', 'error');
+    if (!fp) return swadb.toast('File path is required', 'error');
     var prog = document.getElementById('import-progress');
     prog.style.display = 'block';
     document.getElementById('import-status').textContent = 'Importing...';
     document.getElementById('import-fill').style.width = '50%';
-    var r = await AgentDB.api('POST', '/api/import', { file_path: fp, provider: prov });
+    var r = await swadb.api('POST', '/api/import', { file_path: fp, provider: prov });
     if (r.status === 'ok') {
       document.getElementById('import-fill').style.width = '100%';
       document.getElementById('import-status').textContent = 'Complete!';
@@ -43,11 +43,11 @@
         'Midterm created: ' + (d.midterm_created||0) + '<br>' +
         'Long-term promoted: ' + (d.longterm_promoted||0) + '<br>' +
         'Entities: ' + (d.entities_extracted||0) + '</div>';
-      AgentDB.toast('Import completed', 'success');
+      swadb.toast('Import completed', 'success');
     } else {
       document.getElementById('import-fill').style.width = '0%';
       document.getElementById('import-status').textContent = 'Error: ' + (r.error || 'Unknown');
-      AgentDB.toast('Import failed: ' + (r.error || 'Unknown'), 'error');
+      swadb.toast('Import failed: ' + (r.error || 'Unknown'), 'error');
     }
   };
 })();

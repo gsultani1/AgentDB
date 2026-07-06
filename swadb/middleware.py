@@ -1,13 +1,13 @@
 """
-Provider-agnostic LLM middleware for AgentDB.
+Provider-agnostic LLM middleware for swadb.
 
 Implements the middleware pattern from PRD Section 6.3:
 1. Receive user message
-2. Query AgentDB for context
+2. Query swadb for context
 3. Construct provider-specific API request with context injected
 4. Send request to provider
 5. Receive response
-6. Ingest both user message and AI response into AgentDB
+6. Ingest both user message and AI response into swadb
 7. Return response with observability payload
 
 Provider adapters are pluggable Python modules with two methods:
@@ -29,7 +29,7 @@ class ProviderAdapter:
 
     def format_context(self, context_payload):
         """
-        Format AgentDB context for injection into the provider's API.
+        Format swadb context for injection into the provider's API.
 
         Args:
             context_payload: dict from retrieve_context()
@@ -175,7 +175,7 @@ class OpenAIAdapter(ProviderAdapter):
 
     def format_context(self, context_payload):
         parts = []
-        parts.append("## AgentDB Context\n")
+        parts.append("## swadb Context\n")
 
         if context_payload.get("identity"):
             parts.append("### Identity & Directives")
@@ -264,7 +264,7 @@ class LocalLLMAdapter(ProviderAdapter):
 
     def format_context(self, context_payload):
         parts = []
-        parts.append("[AgentDB Context]")
+        parts.append("[swadb Context]")
 
         if context_payload.get("identity"):
             parts.append("\n[Identity & Directives]")

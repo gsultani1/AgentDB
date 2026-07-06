@@ -1,5 +1,5 @@
 """
-Data access module for AgentDB.
+Data access module for swadb.
 
 Provides CRUD operations for all 23 tables. Each function accepts a
 sqlite3.Connection as its first argument and returns dict-ified rows

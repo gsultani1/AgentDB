@@ -1,5 +1,5 @@
 """
-Scheduled task execution for AgentDB.
+Scheduled task execution for swadb.
 
 Provides:
 - runtime schema bootstrap for scheduled_tasks

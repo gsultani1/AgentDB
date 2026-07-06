@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.notifications = {};
+  const V = swadb.views.notifications = {};
   const el = () => document.getElementById('view-notifications');
 
   V.load = function() {
@@ -34,7 +34,7 @@
     if (pri) params.set('priority', pri);
     if (read !== '') params.set('read', read);
     params.set('limit', '50');
-    const r = await AgentDB.api('GET', '/api/notifications?' + params.toString());
+    const r = await swadb.api('GET', '/api/notifications?' + params.toString());
     const items = r.data?.notifications || r.data || [];
     const box = document.getElementById('notif-list');
     if (!items.length) {
@@ -50,17 +50,17 @@
       html += `<div class="card" style="margin-bottom:10px;padding:14px;border-left:4px solid ${borderColor};${opacity}">
         <div style="display:flex;justify-content:space-between;align-items:start">
           <div>
-            <strong>${AgentDB.esc(n.title || n.message || 'Notification')}</strong>
+            <strong>${swadb.esc(n.title || n.message || 'Notification')}</strong>
             <div style="margin-top:4px;font-size:0.85em;color:var(--text2)">
-              ${AgentDB.esc(n.trigger_type || '')} | <span style="font-weight:600">${AgentDB.esc(p)}</span>
+              ${swadb.esc(n.trigger_type || '')} | <span style="font-weight:600">${swadb.esc(p)}</span>
             </div>
-            <div style="margin-top:2px;font-size:0.8em;color:var(--text2)">${AgentDB.formatDate(n.created_at || n.timestamp)}</div>
-            ${n.body ? '<p style="margin-top:6px;font-size:0.9em">' + AgentDB.esc(n.body) + '</p>' : ''}
+            <div style="margin-top:2px;font-size:0.8em;color:var(--text2)">${swadb.formatDate(n.created_at || n.timestamp)}</div>
+            ${n.body ? '<p style="margin-top:6px;font-size:0.9em">' + swadb.esc(n.body) + '</p>' : ''}
           </div>
           <div>
             ${isRead
               ? '<span class="badge">read</span>'
-              : '<button class="btn btn-sm" onclick="AgentDB.views.notifications.markRead(\'' + AgentDB.esc(n.id || n.notification_id) + '\')">Mark Read</button>'}
+              : '<button class="btn btn-sm" onclick="swadb.views.notifications.markRead(\'' + swadb.esc(n.id || n.notification_id) + '\')">Mark Read</button>'}
           </div>
         </div>
       </div>`;
@@ -69,20 +69,20 @@
   };
 
   V.markRead = async function(id) {
-    await AgentDB.api('PUT', '/api/notifications/' + id + '/read');
+    await swadb.api('PUT', '/api/notifications/' + id + '/read');
     V.loadList();
     V.updateBadge();
   };
 
   V.dismissAll = async function() {
-    await AgentDB.api('POST', '/api/notifications/dismiss');
-    AgentDB.toast('Read notifications dismissed', 'success');
+    await swadb.api('POST', '/api/notifications/dismiss');
+    swadb.toast('Read notifications dismissed', 'success');
     V.loadList();
     V.updateBadge();
   };
 
   V.updateBadge = async function() {
-    const r = await AgentDB.api('GET', '/api/notifications?read=0&limit=100');
+    const r = await swadb.api('GET', '/api/notifications?read=0&limit=100');
     const items = r.data?.notifications || r.data || [];
     const badge = document.getElementById('notif-badge');
     if (badge) {
@@ -91,5 +91,5 @@
     }
   };
 
-  AgentDB.updateNotifBadge = V.updateBadge;
+  swadb.updateNotifBadge = V.updateBadge;
 })();

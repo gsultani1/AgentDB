@@ -1,5 +1,5 @@
 """
-Database initialization and connection management for AgentDB.
+Database initialization and connection management for swadb.
 
 Handles schema creation, trigger installation, WAL mode configuration,
 default meta_config seeding, and optional SQLCipher encryption.
@@ -179,7 +179,7 @@ def _read_passphrase_env():
 
 def get_connection(db_path, passphrase=None):
     """
-    Open a connection to the AgentDB SQLite database.
+    Open a connection to the swadb SQLite database.
 
     Args:
         db_path:    Path to the .db file (str or Path).

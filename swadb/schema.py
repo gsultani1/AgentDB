@@ -1,5 +1,5 @@
 """
-SQLite schema definition for AgentDB v1.5/v1.6.
+SQLite schema definition for swadb v1.5/v1.6.
 
 Contains all tables organized into six functional groups:
 - Memory Tables (short_term_memory, midterm_memory, long_term_memory, pinned_memories, file_attachments)

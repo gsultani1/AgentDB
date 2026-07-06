@@ -1,5 +1,5 @@
 (function() {
-  const V = AgentDB.views.editor = {};
+  const V = swadb.views.editor = {};
   const el = () => document.getElementById('view-editor');
 
   const TEMPLATES = {
@@ -39,16 +39,16 @@
 
   V.updatePreview = function() {
     const text = document.getElementById('editor-textarea').value;
-    document.getElementById('editor-preview').innerHTML = AgentDB.renderMarkdown(text);
+    document.getElementById('editor-preview').innerHTML = swadb.renderMarkdown(text);
   };
 
   V.submit = async function() {
     const text = document.getElementById('editor-textarea').value;
-    const r = await AgentDB.api('POST', '/api/markdown/submit', { text });
+    const r = await swadb.api('POST', '/api/markdown/submit', { text });
     if (r.data && r.data.status === 'ok') {
-      AgentDB.toast(r.data.type + ' ' + r.data.action + ': ' + (r.data.id || r.data.skill_id || r.data.document_entity_id), 'success');
+      swadb.toast(r.data.type + ' ' + r.data.action + ': ' + (r.data.id || r.data.skill_id || r.data.document_entity_id), 'success');
     } else {
-      AgentDB.toast('Error: ' + JSON.stringify(r.data?.errors || r.error), 'error');
+      swadb.toast('Error: ' + JSON.stringify(r.data?.errors || r.error), 'error');
     }
   };
 })();

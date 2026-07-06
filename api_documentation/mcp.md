@@ -4,6 +4,12 @@ swadb ships an MCP server that exposes 9 tools to any MCP-aware client
 (Claude Desktop, Cursor, Continue.dev, etc.). The server runs on port
 **8421** by default, alongside the main HTTP server on 8420.
 
+> **Migrating from the AgentDB branding?** The server now advertises
+> itself to clients as `swadb` (previously `AgentDB`), and older client
+> configs that launched `python -m agentdb.cli mcp` must be updated to
+> `swadb mcp` (or `python -m swadb.cli mcp`) — the old module path no
+> longer exists.
+
 ## Tools exposed
 
 | Tool | Purpose |
