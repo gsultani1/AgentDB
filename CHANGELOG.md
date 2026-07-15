@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-15
+
+Server hardening for concurrent IDE integrations (e.g. Fable AIIDE):
+threaded HTTP serving, health-endpoint identity, and the MCP retrieval
+tool under its documented name.
+
 ### Added
 - **`GET /api/health` now identifies its server instance**: the payload
   includes `version`, `database_path`, and `database` (basename), in both
@@ -30,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `retrieve_context`** (was accidentally exposed as the internal function
   name `retrieve_context_tool`). Breaking only for MCP clients that had
   adapted to the misnamed tool.
+
+## [0.2.0] — 2026-07-05
+
+The swadb rebrand, plus route/security fixes and documentation
+reconciliation surfaced by the HTTP integration suite.
+
+### Changed
 - **Product rebranded from "AgentDB" to swadb.** The split naming — PyPI
   package `swadb`, product branded AgentDB — is gone; the product, web UI,
   desktop shell, MCP server, and documentation all say swadb now. The
@@ -312,6 +325,9 @@ is branded **AgentDB**. Same software.
   grant, output truncated at 5 MB, all calls logged to
   `shell_command_log`.
 
-[Unreleased]: https://github.com/gsultani1/AgentDB/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/gsultani1/AgentDB/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/gsultani1/AgentDB/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/gsultani1/AgentDB/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/gsultani1/AgentDB/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/gsultani1/AgentDB/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/gsultani1/AgentDB/releases/tag/v0.1.0
