@@ -208,6 +208,12 @@ def test_operator_health(server):
     assert data["status"] == "ok"
     assert data["locked"] is False
     assert isinstance(data["uptime_seconds"], (int, float))
+    # Identity fields let clients sharing the port detect a server that is
+    # backed by a different database file than the one they configured.
+    assert data["database_path"] == server.db
+    assert data["database"] == os.path.basename(server.db)
+    from swadb import __version__
+    assert data["version"] == __version__
 
 
 def test_stats(server):

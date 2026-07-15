@@ -13,7 +13,7 @@ import re
 import time
 import traceback
 from datetime import datetime, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -48,6 +48,8 @@ _db_path = None
 _start_time = None
 _static_dir = Path(__file__).parent / "static"
 _allowed_origins = {"http://127.0.0.1", "http://localhost", "tauri://localhost"}
+# Extra origins (e.g. Electron custom schemes) via comma-separated env var.
+_allowed_origins |= {o.strip() for o in os.environ.get("SWADB_ALLOWED_ORIGINS", "").split(",") if o.strip()}
 _last_import_result = None
 _file_watcher = None
 _task_scheduler = None
@@ -136,6 +138,17 @@ def _check_operator_auth(handler):
         return handler.headers.get("X-API-Key", "") == expected
     finally:
         conn.close()
+
+
+def _health_identity():
+    """Identify this server instance so clients on a shared port can detect
+    that they are talking to a server backed by a different database file."""
+    from swadb import __version__
+    identity = {"version": __version__}
+    if _db_path is not None:
+        identity["database_path"] = str(_db_path)
+        identity["database"] = os.path.basename(str(_db_path))
+    return identity
 
 
 def _json_response(handler, status_code, data=None, error=None):
@@ -308,7 +321,9 @@ class SwadbHandler(BaseHTTPRequestHandler):
                 status["encryption_enabled_config"] = None  # unknown while locked
                 return _json_response(self, 200, data=status)
             if path == "/api/health":
-                return _json_response(self, 200, data={"status": "locked", "locked": True})
+                return _json_response(self, 200, data={
+                    "status": "locked", "locked": True, **_health_identity(),
+                })
 
         try:
             self._route_get(path, query_params)
@@ -511,6 +526,7 @@ class SwadbHandler(BaseHTTPRequestHandler):
             uptime = round(time.time() - _start_time, 1) if _start_time else 0
             return _json_response(self, 200, data={
                 "status": "ok", "locked": False, "uptime_seconds": uptime,
+                **_health_identity(),
             })
         # Agent routes have their own auth — skip operator check for them
         if path.startswith("/api/agent/"):
@@ -3002,6 +3018,14 @@ def is_locked():
     return _locked
 
 
+class _ThreadingServer(ThreadingHTTPServer):
+    """Handle each request on its own thread so long operations (chat,
+    consolidation, model warmup) don't block health probes and other
+    clients. Handlers open a fresh SQLite connection per request, and
+    SQLite writes wait on busy_timeout, so concurrent requests are safe."""
+    daemon_threads = True
+
+
 def run_server(db_path, host="127.0.0.1", port=8420):
     """
     Start the swadb HTTP server.
@@ -3032,7 +3056,7 @@ def run_server(db_path, host="127.0.0.1", port=8420):
     else:
         _bootstrap_db_dependent_services(db_path)
 
-    server = HTTPServer((host, port), SwadbHandler)
+    server = _ThreadingServer((host, port), SwadbHandler)
     print(f"swadb server running at http://{host}:{port}")
     print(f"Database: {db_path}")
     print(f"Operator API: http://{host}:{port}/api/")

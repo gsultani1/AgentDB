@@ -211,6 +211,7 @@ def get_connection(db_path, passphrase=None):
         conn.execute(f"PRAGMA key = '{passphrase}';")
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
+        conn.execute("PRAGMA busy_timeout=5000;")
         conn.row_factory = _SQLCIPHER.Row
         return conn
 
@@ -223,6 +224,7 @@ def get_connection(db_path, passphrase=None):
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     conn.row_factory = sqlite3.Row
     return conn
 
