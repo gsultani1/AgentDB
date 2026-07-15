@@ -25,7 +25,7 @@ CSV attachment instead of the JSON envelope.)
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/health` | unauthenticated liveness probe; `{status: "ok", locked: false, uptime_seconds}` |
+| GET | `/api/health` | unauthenticated liveness probe; `{status: "ok", locked: false, uptime_seconds, version, database_path, database}` — the identity fields let clients detect a server on a shared port that is backed by a different database file |
 | GET | `/api/agent/health` | unauthenticated; DB status, uptime, embedding model, last consolidation |
 | GET | `/api/stats` | row counts + provider name + query-cache metrics |
 

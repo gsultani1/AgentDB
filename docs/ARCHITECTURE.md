@@ -190,7 +190,7 @@ Walks registered workspaces recursively, classifies files by extension, generate
 
 ### `mcp_server.py` — MCP Server (166 lines)
 
-FastMCP server exposing 9 tools: `retrieve_context_tool`, `ingest_memory`, `search_memories`, `list_memories`, `create_entity`, `list_entities`, `check_goals`, `get_health`, `run_consolidation`. Supports SSE (port 8421, auto-started) and stdio transports.
+FastMCP server exposing 9 tools: `retrieve_context`, `ingest_memory`, `search_memories`, `list_memories`, `create_entity`, `list_entities`, `check_goals`, `get_health`, `run_consolidation`. Supports SSE (port 8421, auto-started) and stdio transports.
 
 The MCP thread runs with crash recovery: retry loop with 2-second delay, max 5 consecutive failures within 60 seconds before giving up.
 

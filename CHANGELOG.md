@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`GET /api/health` now identifies its server instance**: the payload
+  includes `version`, `database_path`, and `database` (basename), in both
+  unlocked and locked modes. Clients that share the default port (e.g. an
+  IDE and a standalone `swadb serve`) can now detect that a live server is
+  backed by a different database file than the one they configured,
+  instead of silently reading and writing someone else's memory store.
+- **`SWADB_ALLOWED_ORIGINS`**: comma-separated extra CORS origins merged
+  into the built-in allowlist, for embedders whose renderer runs on a
+  custom scheme (e.g. Electron).
+
 ### Changed
+- **The HTTP server is now threaded** (`ThreadingHTTPServer` with daemon
+  threads, was single-threaded `HTTPServer`): long operations — chat,
+  consolidation, first-call embedding warmup — no longer block health
+  probes and other clients. Handlers already open a fresh SQLite
+  connection per request; connections now also set
+  `PRAGMA busy_timeout=5000` so concurrent writers wait for the lock
+  instead of failing with "database is locked".
+- **The MCP retrieval tool is registered under its documented name
+  `retrieve_context`** (was accidentally exposed as the internal function
+  name `retrieve_context_tool`). Breaking only for MCP clients that had
+  adapted to the misnamed tool.
 - **Product rebranded from "AgentDB" to swadb.** The split naming — PyPI
   package `swadb`, product branded AgentDB — is gone; the product, web UI,
   desktop shell, MCP server, and documentation all say swadb now. The

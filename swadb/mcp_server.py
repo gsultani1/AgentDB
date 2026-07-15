@@ -13,7 +13,7 @@ def _get_conn():
     return get_connection(_db_path)
 
 
-@mcp.tool()
+@mcp.tool(name="retrieve_context")
 def retrieve_context_tool(query: str, agent_id: str = "default") -> dict:
     """Retrieve semantically relevant context (memories, entities, goals, skills) for a query."""
     conn = _get_conn()
