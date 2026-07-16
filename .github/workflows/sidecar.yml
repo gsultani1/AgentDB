@@ -60,6 +60,15 @@ jobs:
         env:
           HNSWLIB_NO_NATIVE: "1"
 
+      # CPU-only torch: the default PyPI wheel on Linux bundles the CUDA
+      # stack (~2.5 GB of nvidia_* libs) which collect_all("torch") would
+      # drag into the bundle, blowing past GitHub's 2 GiB release-asset
+      # limit. The sidecar is a CPU embedding server; CUDA is dead weight.
+      # Mac wheels are CPU/MPS-only and Windows PyPI wheels are CPU.
+      - name: Install CPU-only torch (Linux)
+        if: runner.os == 'Linux'
+        run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
       - name: Install package + build tooling
         if: matrix.os != 'macos-15-intel'
         run: python -m pip install -e . pyinstaller pyinstaller-hooks-contrib
@@ -152,6 +161,14 @@ jobs:
             tar -C dist -czf "out/swadb-sidecar-v${VERSION}-${OS}-${ARCH}.tar.gz" swadb-sidecar
           fi
           ls -lh out/
+          # GitHub caps release assets at 2 GiB — fail HERE with a readable
+          # message (usually means a non-CPU torch snuck into the bundle)
+          # instead of a 422 in the release job.
+          OVERSIZED=$(find out -type f -size +1900M || true)
+          if [ -n "$OVERSIZED" ]; then
+            echo "::error::Archive exceeds the 2 GiB release-asset limit (CUDA torch in the bundle?): $OVERSIZED"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

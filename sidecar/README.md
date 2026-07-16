@@ -21,6 +21,12 @@ fully offline out of the box.
 ## Build
 
 ```bash
+# Linux: install CPU-only torch FIRST — the default PyPI wheel bundles
+# the CUDA stack (~2.5 GB of nvidia_* libs), which collect_all("torch")
+# would drag into the bundle and blow past GitHub's 2 GiB release-asset
+# limit. (Mac wheels are CPU/MPS-only; Windows PyPI wheels are CPU.)
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+
 pip install -e ..            # swadb + runtime deps in the build env
 bash build-sidecar.sh        # prepares hf cache, runs PyInstaller, tars
 ```
