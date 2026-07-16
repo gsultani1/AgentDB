@@ -124,7 +124,7 @@ jobs:
           "$BIN" --db "$D/t.db" memory search "hermetic" | grep -qi "smoke"
           "$BIN" --db "$D/t.db" serve --host 127.0.0.1 --port 18420 &
           SERVER_PID=$!
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             curl -sf http://127.0.0.1:18420/api/health && break
             sleep 1
           done
