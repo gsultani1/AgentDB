@@ -1876,9 +1876,13 @@ class SwadbHandler(BaseHTTPRequestHandler):
                     ) as f:
                         f.write(code)
                         tmp_path = f.name
+                    from swadb.pyexec import NO_PYTHON_ERROR, python_interpreter
+                    interpreter = python_interpreter()
+                    if not interpreter:
+                        return _json_response(self, 501, error=NO_PYTHON_ERROR)
                     try:
                         proc = subprocess.run(
-                            [_sys.executable, tmp_path],
+                            [interpreter, tmp_path],
                             capture_output=True, text=True, timeout=30,
                         )
                     finally:
