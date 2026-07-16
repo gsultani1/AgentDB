@@ -5,6 +5,7 @@ Uses sentence-transformers with the all-MiniLM-L6-v2 model (384 dimensions)
 for local embedding generation with no external API calls.
 """
 
+import os
 import struct
 import threading
 
@@ -34,7 +35,12 @@ def get_model(model_name="all-MiniLM-L6-v2"):
         with _model_lock:
             if _model is None or _model_name != model_name:
                 from sentence_transformers import SentenceTransformer
-                _model = SentenceTransformer(model_name)
+                # SWADB_EMBED_DEVICE forces a torch device (e.g. "cpu").
+                # Unset -> auto selection. CI runners need cpu: GitHub's
+                # arm64 macOS runners expose an MPS pool so small that
+                # merely loading the model OOMs.
+                device = os.environ.get("SWADB_EMBED_DEVICE") or None
+                _model = SentenceTransformer(model_name, device=device)
                 _model_name = model_name
     return _model
 

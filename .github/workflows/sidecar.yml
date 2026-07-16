@@ -22,12 +22,15 @@ jobs:
   build-sidecar:
     name: sidecar (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, macos-13, windows-2022]
-        # ubuntu-22.04: oldest-glibc compatibility; macos-14 = arm64,
-        # macos-13 = x64.
+        os: [ubuntu-22.04, macos-14, macos-15-intel, windows-2022]
+        # ubuntu-22.04: oldest-glibc compatibility; macos-14 = arm64.
+        # macos-15-intel = mac x64 (the retired macos-13 label queues
+        # forever). If GitHub retires macos-15-intel too, drop mac x64
+        # and ship arm64-only.
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -72,6 +75,8 @@ jobs:
           HF_HUB_OFFLINE: "1"
           HF_HOME: /nonexistent
           TRANSFORMERS_OFFLINE: "1"
+          # Force CPU: arm64 macOS runners OOM on their tiny MPS pool.
+          SWADB_EMBED_DEVICE: cpu
         run: |
           BIN=dist/swadb-sidecar/swadb
           [ -x "$BIN" ] || BIN=dist/swadb-sidecar/swadb.exe

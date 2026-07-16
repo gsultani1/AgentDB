@@ -35,7 +35,9 @@ def ensure_model_cached():
         return src
     print(f"model not in cache; downloading {MODEL}…")
     from sentence_transformers import SentenceTransformer
-    SentenceTransformer(MODEL)
+    # device="cpu": cache prep only needs the download, and GitHub's arm64
+    # macOS runners OOM instantly when torch auto-selects their tiny MPS pool.
+    SentenceTransformer(MODEL, device="cpu")
     if not src.is_dir():
         raise SystemExit(f"download did not populate expected cache dir {src}")
     return src
