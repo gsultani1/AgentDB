@@ -47,6 +47,10 @@ bundle sidesteps it).
 - **Python skills in packaged mode** need a system `python3`/`python` on
   PATH (`swadb/pyexec.py`); without one they return a readable error.
   Bash skills are unaffected.
+- **`SWADB_EMBED_DEVICE`** forces the torch device for the embedding
+  model (unset = auto). CI sets `cpu` everywhere: GitHub's arm64 macOS
+  runners expose an MPS pool so small that loading the model OOMs. End
+  users on real Macs get MPS/auto by default.
 
 ## Size / startup (Linux x64, CPU torch)
 
