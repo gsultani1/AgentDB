@@ -1,0 +1,9 @@
+# Keeps GitHub Actions references updated (works on tag refs and on
+# commit-SHA pins alike — but note it does NOT migrate tags to SHAs;
+# that hardening is a manual follow-up).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

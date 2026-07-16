@@ -1,0 +1,35 @@
+name: Lint workflows
+
+# actionlint validates what a YAML parser can't: GitHub expressions,
+# action inputs, job wiring, event syntax, and embedded shell. Runs
+# whenever a workflow file changes. (Caveat: syntax broken badly enough
+# that GitHub can't parse the file prevents this workflow from starting
+# at all — GitHub's own parser error is the signal in that case.)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: actionlint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color

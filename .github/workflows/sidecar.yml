@@ -3,7 +3,13 @@ name: Build sidecar binaries
 # Per-OS self-contained PyInstaller bundles, attached to the GitHub
 # Release for the pushed tag. PyInstaller does not cross-compile, hence
 # the matrix. workflow_dispatch allows dry runs (artifacts only, no
-# release upload unless the ref is a tag).
+# release upload unless release_tag is given or the ref is a tag).
+#
+# NOTE on action pinning: tags (@v5 etc.) are mutable; pinning by commit
+# SHA is the hardened form. SHAs could not be resolved from the sandbox
+# that authored this file — migrate to SHA pins from a machine with
+# GitHub access; Dependabot (.github/dependabot.yml) keeps whatever ref
+# style exists up to date but does not migrate tags to SHAs.
 
 on:
   push:
@@ -18,6 +24,13 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+
+concurrency:
+  group: sidecar-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-sidecar:
     name: sidecar (${{ matrix.os }})
@@ -29,8 +42,10 @@ jobs:
         os: [ubuntu-22.04, macos-14, macos-15-intel, windows-2022]
         # ubuntu-22.04: oldest-glibc compatibility; macos-14 = arm64.
         # macos-15-intel = mac x64 (the retired macos-13 label queues
-        # forever). If GitHub retires macos-15-intel too, drop mac x64
-        # and ship arm64-only.
+        # forever) — it builds against the pinned legacy ML stack in
+        # sidecar/constraints-macos-x86_64.txt because PyTorch stopped
+        # shipping Intel-Mac wheels after 2.2.2. If GitHub retires
+        # macos-15-intel too, drop mac x64 and ship arm64-only.
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -40,10 +55,31 @@ jobs:
 
       # Portable hnswlib build — same recipe as test.yml (-march=native
       # wheels from a shared cache SIGILL on runners with different CPUs).
-      - run: pip install --no-cache-dir "hnswlib>=0.8.0"
+      - name: Install portable hnswlib
+        run: python -m pip install --no-cache-dir "hnswlib>=0.8.0"
         env:
           HNSWLIB_NO_NATIVE: "1"
-      - run: pip install -e . pyinstaller pyinstaller-hooks-contrib
+
+      - name: Install package + build tooling
+        if: matrix.os != 'macos-15-intel'
+        run: python -m pip install -e . pyinstaller pyinstaller-hooks-contrib
+
+      - name: Install package + build tooling (Intel-Mac legacy ML stack)
+        if: matrix.os == 'macos-15-intel'
+        run: >-
+          python -m pip install -e . pyinstaller pyinstaller-hooks-contrib
+          -c sidecar/constraints-macos-x86_64.txt
+
+      # Fails before PyInstaller with a clear message when the resolved
+      # stack is broken (e.g. torch/transformers/numpy incompatibility).
+      # Cross-platform: no shell pipelines — Windows defaults to PowerShell.
+      - name: Verify ML dependency stack
+        run: |
+          python -m pip check
+          python -c "import numpy, torch, transformers, sentence_transformers; print('numpy:', numpy.__version__); print('torch:', torch.__version__); print('transformers:', transformers.__version__); print('sentence-transformers:', sentence_transformers.__version__)"
+
+      - name: Show installed packages
+        run: python -m pip list
 
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
@@ -121,16 +157,18 @@ jobs:
         with:
           name: sidecar-${{ matrix.os }}
           path: sidecar/out/*
+          if-no-files-found: error
+          retention-days: 14
 
   release:
     name: Attach to GitHub Release
     if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: build-sidecar
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -138,6 +176,7 @@ jobs:
       - name: Create or update GitHub Release with sidecar archives
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           if [ -n "$RELEASE_TAG" ]; then TAG="$RELEASE_TAG"; else TAG="${GITHUB_REF#refs/tags/}"; fi
@@ -145,6 +184,7 @@ jobs:
             gh release upload "$TAG" out/* --clobber
           else
             gh release create "$TAG" \
+              --verify-tag \
               --title "$TAG" \
               --generate-notes \
               out/*
