@@ -153,7 +153,7 @@ jobs:
           fi
           ls -lh out/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sidecar-${{ matrix.os }}
           path: sidecar/out/*
