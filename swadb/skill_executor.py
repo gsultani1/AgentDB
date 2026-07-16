@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from swadb import crud
+from swadb.pyexec import NO_PYTHON_ERROR, is_frozen, python_interpreter
 
 
 def execute_skill(conn, skill_id, inputs=None, agent_id="default",
@@ -123,7 +124,10 @@ def _execute_code_procedure(impl, inputs, config):
         env["SWADB_SKILL_INPUTS"] = json.dumps(inputs)
 
         if language == "python":
-            cmd = [sys.executable, temp_path]
+            interpreter = python_interpreter()
+            if not interpreter:
+                return {"status": "failed", "error": NO_PYTHON_ERROR}
+            cmd = [interpreter, temp_path]
         elif language == "bash":
             cmd = ["bash", temp_path]
         else:
@@ -333,12 +337,15 @@ def _build_sandbox_env(config):
     env["PYTHONPATH"] = ""
     env["PYTHONDONTWRITEBYTECODE"] = "1"
 
-    # Allow the Python executable to be found
-    python_dir = str(Path(sys.executable).parent)
-    if sys.platform == "win32":
-        env["PATH"] = python_dir + ";" + env["PATH"]
-    else:
-        env["PATH"] = python_dir + ":" + env["PATH"]
+    # Allow the Python executable to be found. In a frozen bundle
+    # sys.executable is the sidecar launcher, not a Python interpreter —
+    # prepending its dir would be useless (or shadow a real python).
+    if not is_frozen():
+        python_dir = str(Path(sys.executable).parent)
+        if sys.platform == "win32":
+            env["PATH"] = python_dir + ";" + env["PATH"]
+        else:
+            env["PATH"] = python_dir + ":" + env["PATH"]
 
     return env
 

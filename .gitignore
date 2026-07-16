@@ -66,4 +66,7 @@ docs/AgentDB_PRD_v1.8.md
 docs/WHATS_NEXT.md
 
 # Uploads
-uploads/
+uploads/sidecar/build/
+sidecar/dist/
+sidecar/*.tar.gz
+sidecar/*.zip
