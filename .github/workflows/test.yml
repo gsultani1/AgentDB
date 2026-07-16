@@ -43,7 +43,7 @@ jobs:
           - { os: windows-latest, python-version: "3.10" }
           - { os: windows-latest, python-version: "3.13" }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -75,7 +75,7 @@ jobs:
     # Intentionally no `needs: pytest` — packaging validation runs in
     # parallel with the test matrix.
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
